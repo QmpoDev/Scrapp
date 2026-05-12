@@ -1,0 +1,92 @@
+{
+    "JunkshopScraps": {
+        "MagneticMetals": {
+            "Steel": {
+                "min": 13,
+                "max": 15,
+                "unit": "kg"
+            },
+            "Tin Cans": {
+                "min": 4,
+                "max": 6,
+                "unit": "kg"
+            },
+            "Metal Roofing": {
+                "min": 3,
+                "max": 5,
+                "unit": "kg"
+            }
+        },
+        "NonMagneticMetals": {
+            "Aluminum": {
+                "min": 60,
+                "max": 80,
+                "unit": "kg"
+            },
+            "Copper": {
+                "min": 550,
+                "max": 600,
+                "unit": "kg"
+            },
+            "Brass": {
+                "min": 250,
+                "max": 300,
+                "unit": "kg"
+            },
+            "Stainless Steel": {
+                "min": 15,
+                "max": 20,
+                "unit": "kg"
+            }
+        },
+        "Plastic": {
+            "min": 3,
+            "max": 5,
+            "unit": "kg"
+        },
+        "Paper": {
+            "min": 0.50,
+            "max": 1,
+            "unit": "kg"
+        },
+        "Cardboard": {
+            "min": 1,
+            "max": 3,
+            "unit": "kg"
+        },
+        "Glass": {
+            "Glass Bottle (2x2 Gin)": {
+                "min": 1.00,
+                "max": 1.80,
+                "unit": "piece"
+            },
+            "Glass Bottle (Longneck Emperador)": {
+                "min": 0.50,
+                "max": 1.00,
+                "unit": "piece"
+            },
+            "Glass Bottle (Ketchup)": {
+                "min": 0.50,
+                "max": 0.80,
+                "unit": "piece"
+            }
+        },
+        "Electronics": {
+            "Motherboard": {
+                "min": 1000,
+                "max": 1200,
+                "unit": "kg"
+            },
+            "IC": {
+                "min": 30,
+                "max": 50,
+                "unit": "kg"
+            },
+            "TV Board": {
+                "min": 20,
+                "max": 30,
+                "unit": "kg"
+            }
+        }
+    }
+}

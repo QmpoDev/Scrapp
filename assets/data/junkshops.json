@@ -1,0 +1,368 @@
+{
+    "region": "La Union, Philippines",
+    "junk_shops": [
+        {
+            "name": "Ngimod Junkshop",
+            "municipality": "San Fernando",
+            "address": "J839+QQX, Diversion Road, San Fernando City, 2500 La Union",
+            "location": "San Fernando City, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.60474690157149,
+                "longitude": 120.3195464398352
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 5:00 PM",
+            "phone": "0917-342-8821",
+            "accepted_materials": [
+                "Steel",
+                "Tin Cans",
+                "Aluminum",
+                "Plastics",
+                "Cardboard",
+                "Paper"
+            ]
+        },
+        {
+            "name": "Kapteen's Junkshop",
+            "municipality": "San Fernando",
+            "address": "J8PH+RMR, San Fernando City, La Union",
+            "location": "San Fernando City, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.637386283281536,
+                "longitude": 120.32908470152405
+            },
+            "category": "Metal Specialist",
+            "schedule": "7:00 AM - 5:00 PM",
+            "phone": "0928-551-7734",
+            "accepted_materials": [
+                "Steel",
+                "Copper",
+                "Brass",
+                "Stainless Steel",
+                "Aluminum",
+                "Metal Roofing"
+            ]
+        },
+        {
+            "name": "Sto Nino Junkshop",
+            "municipality": "San Fernando",
+            "address": "H8M5+PCX, San Fernando City, La Union",
+            "location": "San Fernando City, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.584597391884103,
+                "longitude": 120.30865807800372
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 4:00 PM",
+            "phone": "0905-218-6643",
+            "accepted_materials": [
+                "Steel",
+                "Tin Cans",
+                "Plastics",
+                "Cardboard",
+                "Glass Bottles (2x2 Gin)",
+                "Glass Bottles (Longneck Emperador)"
+            ]
+        },
+        {
+            "name": "F.E Junkshop",
+            "municipality": "Bacnotan",
+            "address": "P88W+8J8, Bacnotan, La Union",
+            "location": "Bacnotan, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.716199093843397,
+                "longitude": 120.34661520054756
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 5:00 PM",
+            "phone": "0933-874-2210",
+            "accepted_materials": [
+                "Steel",
+                "Aluminum",
+                "Copper",
+                "Plastics",
+                "Paper",
+                "Cardboard"
+            ]
+        },
+        {
+            "name": "2boys Junkshop",
+            "municipality": "San Fernando",
+            "address": "Purok 4, San Fernando City, 2500 La Union",
+            "location": "San Fernando City, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.625902092717077,
+                "longitude": 120.32976434515417
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 5:00 PM",
+            "phone": "0946-103-5587",
+            "accepted_materials": [
+                "Steel",
+                "Tin Cans",
+                "Metal Roofing",
+                "Plastics",
+                "Cardboard",
+                "Glass Bottles (Ketchup)"
+            ]
+        },
+        {
+            "name": "Pareng Bryanz Junkshop",
+            "municipality": "Bacnotan",
+            "address": "P8VR+4RM, Bacnotan, La Union",
+            "location": "Bacnotan, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.74311889812684,
+                "longitude": 120.34204109913419
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 5:00 PM",
+            "phone": "0921-667-4490",
+            "accepted_materials": [
+                "Steel",
+                "Aluminum",
+                "Brass",
+                "Plastics",
+                "Paper"
+            ]
+        },
+        {
+            "name": "FJ Sisters Junkshop",
+            "municipality": "Bacnotan",
+            "address": "Bacnotan, 2515 La Union",
+            "location": "Bacnotan, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.74613942935453,
+                "longitude": 120.34079655427436
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 4:30 PM",
+            "phone": "0912-445-3378",
+            "accepted_materials": [
+                "Steel",
+                "Tin Cans",
+                "Cardboard",
+                "Paper",
+                "Glass Bottles (2x2 Gin)",
+                "Glass Bottles (Longneck Emperador)"
+            ]
+        },
+        {
+            "name": "Timpuyog Junkshop",
+            "municipality": "San Fernando",
+            "address": "J8PQ+8PM, San Fernando City, 2500 La Union",
+            "location": "San Fernando City, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.669991814563332,
+                "longitude": 120.34441230369694
+            },
+            "category": "Industrial Waste",
+            "schedule": "7:30 AM - 5:30 PM",
+            "phone": "0956-789-1123",
+            "accepted_materials": [
+                "Steel",
+                "Copper",
+                "Stainless Steel",
+                "Aluminum",
+                "Metal Roofing",
+                "Motherboard",
+                "IC",
+                "TV Board"
+            ]
+        },
+        {
+            "name": "Javier Junkshop",
+            "municipality": "Bacnotan",
+            "address": "P9WF+PMG, Bacnotan, La Union",
+            "location": "Bacnotan, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.772579138164666,
+                "longitude": 120.37874457569224
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 5:00 PM",
+            "phone": "0908-234-6651",
+            "accepted_materials": [
+                "Steel",
+                "Tin Cans",
+                "Aluminum",
+                "Brass",
+                "Plastics",
+                "Cardboard"
+            ]
+        },
+        {
+            "name": "Boyet Junkshop",
+            "municipality": "Tubao",
+            "address": "208, Tubao, La Union",
+            "location": "Tubao, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.355766369760854,
+                "longitude": 120.42160221773395
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 5:00 PM",
+            "phone": "0935-112-8874",
+            "accepted_materials": [
+                "Steel",
+                "Tin Cans",
+                "Plastics",
+                "Paper",
+                "Cardboard",
+                "Glass Bottles (Ketchup)"
+            ]
+        },
+        {
+            "name": "New Aringay Junkshop",
+            "municipality": "Aringay",
+            "address": "Aringay, La Union",
+            "location": "Aringay, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.402058205385863,
+                "longitude": 120.35492509750183
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 5:00 PM",
+            "phone": "0919-887-3302",
+            "accepted_materials": [
+                "Steel",
+                "Aluminum",
+                "Copper",
+                "Plastics",
+                "Cardboard",
+                "Paper",
+                "Glass Bottles (2x2 Gin)"
+            ]
+        },
+        {
+            "name": "Baltazar Junkshop",
+            "municipality": "Aringay",
+            "address": "Aringay, La Union",
+            "location": "Aringay, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.40242928934783,
+                "longitude": 120.35487278216176
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 4:00 PM",
+            "phone": "0943-556-7721",
+            "accepted_materials": [
+                "Steel",
+                "Tin Cans",
+                "Metal Roofing",
+                "Plastics",
+                "Cardboard"
+            ]
+        },
+        {
+            "name": "Lexine Junkshop",
+            "municipality": "Bauang",
+            "address": "Bauang, La Union",
+            "location": "Bauang, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.550282799056614,
+                "longitude": 120.32391770915432
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 5:00 PM",
+            "phone": "0927-334-9980",
+            "accepted_materials": [
+                "Steel",
+                "Aluminum",
+                "Plastics",
+                "Paper",
+                "Cardboard",
+                "Glass Bottles (Longneck Emperador)"
+            ]
+        },
+        {
+            "name": "Cabutotan Junkshop",
+            "municipality": "Rosario",
+            "address": "Purok 2 Parasapas, Rosario, 2506 La Union",
+            "location": "Rosario, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.273939626185758,
+                "longitude": 120.4447156293877
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 5:00 PM",
+            "phone": "0961-223-4415",
+            "accepted_materials": [
+                "Steel",
+                "Tin Cans",
+                "Aluminum",
+                "Plastics",
+                "Cardboard",
+                "Paper"
+            ]
+        },
+        {
+            "name": "Triple R Junkshop",
+            "municipality": "Rosario",
+            "address": "National Highway, Concepcion, Rosario, 2506 La Union",
+            "location": "Rosario, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.224720612370128,
+                "longitude": 120.46538789653675
+            },
+            "category": "Metal Specialist",
+            "schedule": "7:00 AM - 6:00 PM",
+            "phone": "0915-778-6634",
+            "accepted_materials": [
+                "Steel",
+                "Copper",
+                "Brass",
+                "Stainless Steel",
+                "Aluminum",
+                "Metal Roofing",
+                "Motherboard",
+                "IC"
+            ]
+        },
+        {
+            "name": "New Agoo Junk Recycling Centre",
+            "municipality": "Agoo",
+            "address": "San Miguel, Agoo, La Union",
+            "location": "Agoo, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.319,
+                "longitude": 120.36953301798715
+            },
+            "category": "General Scrap",
+            "schedule": "8:00 AM - 5:00 PM",
+            "phone": "0922-445-8891",
+            "accepted_materials": [
+                "Steel",
+                "Aluminum",
+                "Copper",
+                "Brass",
+                "Plastics",
+                "Cardboard",
+                "Paper",
+                "Glass Bottles (2x2 Gin)"
+            ]
+        },
+        {
+            "name": "SMD Junkshop",
+            "municipality": "Rosario",
+            "address": "6GM5+762, Rosario, La Union",
+            "location": "Rosario, La Union, Philippines",
+            "coordinates": {
+                "latitude": 16.240546552809338,
+                "longitude": 120.5066516952672
+            },
+            "category": "Industrial Waste",
+            "schedule": "8:00 AM - 5:00 PM",
+            "phone": "0939-667-2254",
+            "accepted_materials": [
+                "Steel",
+                "Stainless Steel",
+                "Aluminum",
+                "Metal Roofing",
+                "Tin Cans",
+                "Plastics",
+                "TV Board"
+            ]
+        }
+    ]
+}
