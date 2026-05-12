@@ -4,6 +4,61 @@ A mobile directory application for locating junkshops and recycling centers in *
 
 ---
 
+## Table of Contents
+
+- [Installation & Setup](#installation--setup)
+- [Technical Stack](#technical-stack)
+- [Architecture Overview](#architecture-overview)
+- [Folder Structure](#folder-structure)
+- [Key Features & Engineering Rationale](#key-features--engineering-rationale)
+- [Applied CS Principles](#applied-cs-principles)
+- [Project Assets](#project-assets)
+- [Developer's Note](#developers-note)
+
+---
+
+## Installation & Setup
+
+### Prerequisites
+
+- Flutter SDK ≥ 3.9.2
+- Dart SDK ≥ 3.9.2
+- Android Studio or VS Code with Flutter extension
+- Android emulator or physical device (Android 5.0+ / iOS 12+)
+
+### Steps
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/QmpoDev/Scrapp.git
+cd Scrapp
+
+# 2. Install dependencies
+flutter pub get
+
+# 3. Generate app icons
+dart run flutter_launcher_icons
+
+# 4. Run on a connected device or emulator
+flutter run
+
+# 5. Build a release APK
+flutter build apk --release
+```
+
+### Permissions Required
+
+| Permission | Platform | Purpose |
+|---|---|---|
+| `ACCESS_FINE_LOCATION` | Android | GPS coordinates for user location dot and distance calculation |
+| `ACCESS_COARSE_LOCATION` | Android | Fallback location accuracy |
+| `NSLocationWhenInUseUsageDescription` | iOS | Same as above |
+| `INTERNET` | Android | Map tile loading (CartoDB/OpenStreetMap) and navigation deep-links |
+
+> The shop directory, search, and all filters work without location permission — the user dot and distance labels are simply hidden. Map tiles and navigation require an active internet connection.
+
+---
+
 ## Technical Stack
 
 | Layer | Technology | Version |
@@ -246,46 +301,6 @@ This gives 17px padding on a 320px phone, 20px on a 390px phone, and caps at 24p
 | **Async Programming** | `DataLoader.load()`, `PricingRepository.load()`, and `NavigationHandler.launch()` are all `async/await` Futures; `pricingBoundsProvider` is a `FutureProvider` |
 
 ---
-
-## Installation & Setup
-
-### Prerequisites
-
-- Flutter SDK ≥ 3.9.2
-- Dart SDK ≥ 3.9.2
-- Android Studio or VS Code with Flutter extension
-- Android emulator or physical device (Android 5.0+ / iOS 12+)
-
-### Steps
-
-```bash
-# 1. Clone the repository
-git clone <repository-url>
-cd MobDev2_Scrapp
-
-# 2. Install dependencies
-flutter pub get
-
-# 3. Generate app icons
-dart run flutter_launcher_icons
-
-# 4. Run on a connected device or emulator
-flutter run
-
-# 5. Build a release APK
-flutter build apk --release
-```
-
-### Permissions Required
-
-| Permission | Platform | Purpose |
-|---|---|---|
-| `ACCESS_FINE_LOCATION` | Android | GPS coordinates for user location dot and distance calculation |
-| `ACCESS_COARSE_LOCATION` | Android | Fallback location accuracy |
-| `NSLocationWhenInUseUsageDescription` | iOS | Same as above |
-| `INTERNET` | Android | Map tile loading (CartoDB/OpenStreetMap) and navigation deep-links |
-
-> The shop directory, search, and all filters work without location permission — the user dot and distance labels are simply hidden. Map tiles and navigation require an active internet connection.
 
 ---
 
