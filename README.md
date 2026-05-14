@@ -325,6 +325,145 @@ The script derives a stable UUID v5 per shop from `name + '|' + municipality`, s
 
 ---
 
+## Testing Guide
+
+This section walks through setting up Supabase and testing every part of the registration system end-to-end.
+
+### Step 1 — Create a Supabase Project
+
+1. Go to [supabase.com](https://supabase.com) and create a free account
+2. Click **New Project**, choose a region close to the Philippines (e.g. Singapore)
+3. Once the project is ready, go to **Settings → API** and note:
+   - **Project URL** (e.g. `https://xyzxyz.supabase.co`)
+   - **anon public key** — used by the Flutter app
+   - **service_role key** — used by the admin dashboard and migration script (keep this secret)
+
+### Step 2 — Enable PostGIS
+
+In your Supabase dashboard: **Database → Extensions → search "postgis" → Enable**
+
+### Step 3 — Run the SQL Migrations
+
+Go to **SQL Editor** in your Supabase dashboard and run each file in order:
+
+```
+supabase/migrations/001_create_junkshops.sql
+supabase/migrations/002_create_otp_tokens.sql
+supabase/migrations/003_rls_policies.sql
+supabase/migrations/004_update_shop_function.sql
+supabase/migrations/005_otp_verify_function.sql
+```
+
+Paste each file's contents into the SQL Editor and click **Run**.
+
+### Step 4 — Create the Storage Bucket
+
+In your Supabase dashboard: **Storage → New bucket**
+- Name: `storefront-photos`
+- Toggle **Public bucket** ON
+- Click **Create bucket**
+
+### Step 5 — Seed Existing Shops
+
+Run the migration script to populate Supabase with the 17 existing shops as verified records:
+
+```bash
+cd tools/migration
+dart pub get
+
+# Windows (PowerShell)
+$env:SUPABASE_URL="https://yourproject.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
+dart run migrate_shops.dart
+
+# macOS / Linux
+SUPABASE_URL=https://yourproject.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key \
+dart run migrate_shops.dart
+```
+
+You should see `OK` for each of the 17 shops and a summary at the end.
+
+### Step 6 — Run the Flutter App
+
+> **Important:** Registration requires a physical Android or iOS device. The GPS geofence and camera enforcement do not work on emulators.
+
+```bash
+# From the project root
+flutter run \
+  --dart-define=SUPABASE_URL=https://yourproject.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=your-anon-key
+```
+
+The map should load and show the 17 seeded shops as copper pins.
+
+### Step 7 — Test the Registration Flow
+
+1. Tap the amber **"+"** FAB in the bottom-left corner of the map
+2. Wait for the GPS fix (the FAB shows a spinner) — this takes a few seconds outdoors
+3. The map zooms to zoom level 17 — pan to position the pin over your exact location
+4. Tap **Confirm Location**
+5. Fill in the three fields: Shop Name, Owner Full Name, Contact Number
+6. Tap **Next — Take Photo** — the camera opens
+7. Take a photo of anything in front of you (the storefront)
+8. The app submits — you should see the success screen with "Pending admin review"
+9. Go back to the map — an **amber pin** should appear at your location
+
+### Step 8 — Verify via Admin Dashboard
+
+```bash
+cd admin-dashboard
+cp .env.local.example .env.local
+```
+
+Edit `.env.local`:
+```
+NEXT_PUBLIC_SUPABASE_URL=https://yourproject.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+```
+
+```bash
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) — you should see your test submission in the pending list.
+
+Click **Approve** → enter a confirmation → the pin on the map turns **copper** within a few seconds (Realtime subscription).
+
+### Step 9 — Test the Edit Flow
+
+1. Tap the copper pin you just approved
+2. The bottom sheet should show an **"Edit Listing"** button (because the edit token is stored on your device)
+3. Tap **Edit Listing** → the edit form opens pre-populated
+4. Change the shop name → tap **Save Changes**
+5. The map refreshes and the bottom sheet shows the updated name
+
+### Step 10 — Test the Claim Flow (Token Recovery)
+
+To simulate losing your token:
+
+1. Go to **flutter_secure_storage** — you can clear app data on Android (Settings → Apps → Scrapp → Clear Data)
+2. Reopen the app and tap the pin
+3. The **"Edit Listing"** button is gone; **"Claim This Shop"** appears instead
+4. Tap **Claim This Shop** → enter the contact number you registered with
+5. You'll receive an OTP SMS (requires the Supabase `send-otp` Edge Function to be deployed — see note below)
+6. Enter the 6-digit OTP → the edit form opens
+
+> **Note on OTP SMS:** The `send-otp` Edge Function needs to be deployed to your Supabase project separately. It handles sending the SMS via a provider like Twilio or Vonage. Without it, the OTP send step will return an error. For testing purposes, you can manually insert an OTP record into the `otp_tokens` table in Supabase Studio.
+
+### Common Issues
+
+| Issue | Fix |
+|---|---|
+| Map shows error state | Check that `SUPABASE_URL` and `SUPABASE_ANON_KEY` are correct |
+| GPS fix times out | Test outdoors; emulators don't provide real GPS |
+| Geofence rejection | You must be within 50 m of the pin — don't drag the pin far from your actual location |
+| Photo upload fails | Check that the `storefront-photos` bucket exists and is set to public |
+| Migration script fails | Ensure PostGIS is enabled and all 5 SQL migrations ran successfully |
+
+---
+
 ## Key Features & Engineering Rationale
 
 ### 1. Zero-Friction Registration
