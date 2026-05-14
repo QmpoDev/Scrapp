@@ -1,3 +1,20 @@
+enum ShopStatus { pending, verified, rejected }
+
+extension ShopStatusX on ShopStatus {
+  static ShopStatus fromString(String? s) {
+    switch (s) {
+      case 'verified':
+        return ShopStatus.verified;
+      case 'rejected':
+        return ShopStatus.rejected;
+      default:
+        return ShopStatus.pending;
+    }
+  }
+
+  String get value => name; // 'pending', 'verified', 'rejected'
+}
+
 class MaterialPrice {
   final String material;
   final String unit; // "kg" or "piece"
@@ -60,6 +77,18 @@ class JunkshopModel {
   final List<String> acceptedMaterials;
   final List<MaterialPrice> prices;
 
+  // ── New fields ──────────────────────────────────────────────────────
+  /// Verification lifecycle state. Defaults to [ShopStatus.verified] so
+  /// existing local-JSON shops (which have no status field) appear as
+  /// verified without any code changes in callers.
+  final ShopStatus status;
+  final String ownerName;
+  final String contactNumber;
+  final String? storefrontPhotoUrl;
+  final String? deviceId;
+  final DateTime? submittedAt;
+  final DateTime? verifiedAt;
+
   const JunkshopModel({
     required this.id,
     required this.name,
@@ -72,6 +101,13 @@ class JunkshopModel {
     this.phone = '',
     this.acceptedMaterials = const [],
     this.prices = const [],
+    this.status = ShopStatus.verified,
+    this.ownerName = '',
+    this.contactNumber = '',
+    this.storefrontPhotoUrl,
+    this.deviceId,
+    this.submittedAt,
+    this.verifiedAt,
   });
 
   factory JunkshopModel.fromJson(Map<String, dynamic> json) {
@@ -102,7 +138,28 @@ class JunkshopModel {
               .map(MaterialPrice.fromJson)
               .toList() ??
           const [],
+      status: ShopStatusX.fromString(json['status'] as String?),
+      ownerName: (json['owner_name'] as String?) ?? '',
+      contactNumber: (json['contact_number'] as String?) ?? '',
+      storefrontPhotoUrl: json['storefront_photo_url'] as String?,
+      deviceId: json['device_id'] as String?,
+      submittedAt: json['submitted_at'] != null
+          ? DateTime.parse(json['submitted_at'] as String)
+          : null,
+      verifiedAt: json['verified_at'] != null
+          ? DateTime.parse(json['verified_at'] as String)
+          : null,
     );
+  }
+
+  /// Maps a Supabase row (snake_case columns) to a [JunkshopModel].
+  ///
+  /// The repository is expected to project the PostGIS `location` column
+  /// using `ST_Y(location::geometry) AS lat` and
+  /// `ST_X(location::geometry) AS lng` so this factory receives plain
+  /// float values for those two fields.
+  factory JunkshopModel.fromSupabaseRow(Map<String, dynamic> row) {
+    return JunkshopModel.fromJson(row);
   }
 
   Map<String, dynamic> toJson() => {
@@ -117,6 +174,13 @@ class JunkshopModel {
     'phone': phone,
     'accepted_materials': acceptedMaterials,
     'prices': prices.map((p) => p.toJson()).toList(),
+    'status': status.value,
+    'owner_name': ownerName,
+    'contact_number': contactNumber,
+    if (storefrontPhotoUrl != null) 'storefront_photo_url': storefrontPhotoUrl,
+    if (deviceId != null) 'device_id': deviceId,
+    if (submittedAt != null) 'submitted_at': submittedAt!.toIso8601String(),
+    if (verifiedAt != null) 'verified_at': verifiedAt!.toIso8601String(),
   };
 
   @override
@@ -131,7 +195,7 @@ class JunkshopModel {
 
   @override
   String toString() =>
-      'JunkshopModel(id: $id, name: $name, municipality: $municipality)';
+      'JunkshopModel(id: $id, name: $name, municipality: $municipality, status: ${status.value})';
 
   static void _requireField(Map<String, dynamic> json, String key) {
     if (!json.containsKey(key)) {

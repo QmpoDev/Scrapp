@@ -7,10 +7,12 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:lottie/lottie.dart' hide Marker;
 
 import '../models/junkshop.dart';
 import '../providers/shop_provider.dart';
 import '../screens/shop_detail_screen.dart';
+import '../utils/app_animations.dart';
 import '../utils/distance_calculator.dart' show GeoDistance;
 import '../widgets/animated_marker.dart';
 import '../widgets/glass_container.dart';
@@ -19,6 +21,15 @@ import '../widgets/material_filter_sheet.dart';
 import '../widgets/municipality_filter_sheet.dart';
 import '../widgets/price_filter_sheet.dart';
 import '../widgets/welcome_modal.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../data/supabase_shop_repository.dart';
+import '../providers/edit_token_provider.dart';
+import '../providers/registration_provider.dart';
+import '../widgets/registration_fab.dart';
+import 'claim_shop_screen.dart';
+import 'registration_pin_screen.dart';
+import 'shop_edit_screen.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -32,8 +43,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   List<String> _places = [];
   LatLng? _userLocation;
   bool _locating = false;
-  double _currentZoom = _initialZoom;
+
+  /// Whether labels should be shown — true when zoom ≥ [_labelZoomThreshold].
+  /// Kept as a separate bool so [setState] is only called when the threshold
+  /// is crossed, not on every pan/zoom event.
+  bool _showLabels = _initialZoom >= _labelZoomThreshold;
+
   final MapController _mapController = MapController();
+
+  /// Cache of built [Marker] widgets keyed by `'${shop.id}_${isSelected}_$showLabels'`.
+  /// Avoids rebuilding identical markers on every frame.
+  final Map<String, Marker> _markerCache = {};
+
+  /// ID of the shop whose bottom sheet is currently open.
+  /// Used to highlight the corresponding marker (isSelected = true).
+  String? _selectedShopId;
 
   // Labels appear at zoom ≥ 14 — markers are spread enough to avoid overlap.
   static const double _labelZoomThreshold = 14.0;
@@ -55,13 +79,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       if (mounted) _initLocation();
     });
     // Track zoom so labels appear/disappear at the threshold without rebuilding on every pan.
+    // setState is only called when the label threshold is crossed — not on every pan/zoom event.
     _mapController.mapEventStream.listen((event) {
       if (!mounted || event is! MapEventMove) return;
       final newZoom = event.camera.zoom;
-      final wasAbove = _currentZoom >= _labelZoomThreshold;
-      final isAbove = newZoom >= _labelZoomThreshold;
-      _currentZoom = newZoom;
-      if (wasAbove != isAbove) setState(() {});
+      final newShowLabels = newZoom >= _labelZoomThreshold;
+      if (newShowLabels != _showLabels) {
+        setState(() => _showLabels = newShowLabels);
+      }
     });
   }
 
@@ -142,23 +167,123 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   // ── Bottom sheet ──────────────────────────────────────────────────────────
 
-  void _showShopSheet(JunkshopModel shop) {
+  Future<void> _showShopSheet(JunkshopModel shop) async {
     if (_isSheetOpen) Navigator.of(context).pop();
-    setState(() => _isSheetOpen = true);
+    setState(() {
+      _isSheetOpen = true;
+      _selectedShopId = shop.id;
+    });
 
     double? distanceKm;
     if (_userLocation != null) {
       distanceKm = GeoDistance.km(_userLocation!, LatLng(shop.lat, shop.lng));
     }
 
+    final String? editToken = await ref.read(editTokenProvider(shop.id).future);
+    final bool hasEditToken = editToken != null;
+
+    if (!mounted) return;
+
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (_) => JunkshopBottomSheet(shop: shop, distanceKm: distanceKm),
+      builder: (_) => JunkshopBottomSheet(
+        shop: shop,
+        distanceKm: distanceKm,
+        hasEditToken: hasEditToken,
+        onEdit: hasEditToken
+            ? () async {
+                Navigator.of(context).pop(); // close bottom sheet
+                final token = await ref.read(editTokenProvider(shop.id).future);
+                if (token == null) return;
+                try {
+                  final repo = SupabaseShopRepository(Supabase.instance.client);
+                  final valid = await repo.validateToken(shop.id, token);
+                  if (!mounted) return;
+                  if (valid) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ShopEditScreen(shop: shop, editToken: token),
+                      ),
+                    );
+                  } else {
+                    _showSnack('Edit token is invalid');
+                  }
+                } catch (e) {
+                  if (mounted) _showSnack(e.toString());
+                }
+              }
+            : null,
+        onClaim: () async {
+          Navigator.of(context).pop(); // close bottom sheet
+          final newToken = await Navigator.of(context).push<String>(
+            MaterialPageRoute(builder: (_) => ClaimShopScreen(shop: shop)),
+          );
+          if (newToken != null && mounted) {
+            // Token already persisted by ClaimShopScreen; push edit screen
+            final freshShop = await SupabaseShopRepository(
+              Supabase.instance.client,
+            ).fetchShop(shop.id);
+            if (!mounted) return;
+            if (freshShop != null) {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      ShopEditScreen(shop: freshShop, editToken: newToken),
+                ),
+              );
+            }
+          }
+        },
+      ),
     ).whenComplete(() {
-      if (mounted) setState(() => _isSheetOpen = false);
+      if (mounted) {
+        setState(() {
+          _isSheetOpen = false;
+          _selectedShopId = null;
+        });
+      }
     });
+  }
+
+  // ── Marker builder ────────────────────────────────────────────────────────
+
+  /// Builds a single [Marker] for [entry] with the given display state.
+  /// Extracted so the two-pass cache in [build] can call it cleanly.
+  Marker _buildMarker(
+    MapEntry<int, JunkshopModel> entry,
+    bool showLabels,
+    bool isSelected,
+  ) {
+    final shop = entry.value;
+    return Marker(
+      width: 100,
+      height: showLabels ? 68 : 44,
+      point: LatLng(shop.lat, shop.lng),
+      child: RepaintBoundary(
+        child:
+            AnimatedMarker(
+                  onTap: () => _showShopSheet(shop),
+                  label: shop.name,
+                  showLabel: showLabels,
+                  isSelected: isSelected,
+                )
+                .animate()
+                .scale(
+                  begin: const Offset(0, 0),
+                  end: const Offset(1, 1),
+                  delay: AppAnimations.markerStaggerStep * entry.key,
+                  duration: AppAnimations.markerEntrance,
+                  curve: AppAnimations.elasticOut,
+                )
+                .fadeIn(
+                  delay: AppAnimations.markerStaggerStep * entry.key,
+                  duration: AppAnimations.markerEntranceFade,
+                ),
+      ),
+    );
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -216,35 +341,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
 
     // Staggered entrance animation — delay scales with marker index.
-    final showLabels = _currentZoom >= _labelZoomThreshold;
+    // Two-pass cache: build only markers whose key has changed, prune stale entries.
+    final newCache = <String, Marker>{};
     final markers = filteredShops.asMap().entries.map((entry) {
       final shop = entry.value;
-      return Marker(
-        width: 100,
-        height: showLabels ? 68 : 44,
-        point: LatLng(shop.lat, shop.lng),
-        child: RepaintBoundary(
-          child:
-              AnimatedMarker(
-                    onTap: () => _showShopSheet(shop),
-                    label: shop.name,
-                    showLabel: showLabels,
-                  )
-                  .animate()
-                  .scale(
-                    begin: const Offset(0, 0),
-                    end: const Offset(1, 1),
-                    delay: Duration(milliseconds: 60 * entry.key),
-                    duration: const Duration(milliseconds: 350),
-                    curve: Curves.elasticOut,
-                  )
-                  .fadeIn(
-                    delay: Duration(milliseconds: 60 * entry.key),
-                    duration: const Duration(milliseconds: 200),
-                  ),
-        ),
+      final isSelected = _selectedShopId == shop.id;
+      final cacheKey = '${shop.id}_${isSelected}_$_showLabels';
+      newCache[cacheKey] = _markerCache.putIfAbsent(
+        cacheKey,
+        () => _buildMarker(entry, _showLabels, isSelected),
       );
+      return newCache[cacheKey]!;
     }).toList();
+    // Replace cache with only the markers used this frame (prunes stale entries).
+    _markerCache
+      ..clear()
+      ..addAll(newCache);
 
     // User location marker
     final userMarkers = _userLocation == null
@@ -254,7 +366,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               width: 48,
               height: 48,
               point: _userLocation!,
-              child: const UserLocationMarker(),
+              child: RepaintBoundary(child: const UserLocationMarker()),
             ),
           ];
 
@@ -264,6 +376,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             shopState.hasActiveFilters ||
             shopState.selectedMunicipality != null);
     final topPadding = MediaQuery.of(context).padding.top;
+
+    ref.listen<RegistrationState>(registrationProvider, (previous, next) {
+      if (next.step == RegistrationStep.pinPlacement &&
+          previous?.step != RegistrationStep.pinPlacement &&
+          next.pinLocation != null) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) =>
+                RegistrationPinScreen(initialLocation: next.pinLocation!),
+          ),
+        );
+      }
+    });
 
     return Scaffold(
       body: GestureDetector(
@@ -331,16 +456,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       .slideY(
                         begin: -0.4,
                         end: 0,
-                        duration: const Duration(milliseconds: 400),
-                        curve: Curves.easeOutCubic,
+                        duration: AppAnimations.emphasisSlow,
+                        curve: AppAnimations.easeOutCubic,
                       )
-                      .fadeIn(duration: const Duration(milliseconds: 300)),
+                      .fadeIn(duration: AppAnimations.standardSlow),
 
                   if (_places.isNotEmpty) ...[
                     const SizedBox(height: 8),
                     GlassContainer(
                           borderRadius: 12,
                           opacity: 0.92,
+                          blurSigma: _isSheetOpen ? 18.0 : 12.0,
+                          animationDuration: AppAnimations.emphasis,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
                             vertical: 7,
@@ -445,12 +572,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           begin: -0.3,
                           end: 0,
                           delay: const Duration(milliseconds: 80),
-                          duration: const Duration(milliseconds: 350),
-                          curve: Curves.easeOutCubic,
+                          duration: AppAnimations.emphasis,
+                          curve: AppAnimations.easeOutCubic,
                         )
                         .fadeIn(
                           delay: const Duration(milliseconds: 80),
-                          duration: const Duration(milliseconds: 250),
+                          duration: AppAnimations.standardFade,
                         ),
                     if (shopState.hasActiveFilters ||
                         selectedMunicipality != null) ...[
@@ -493,9 +620,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     begin: const Offset(0, 0),
                     end: const Offset(1, 1),
                     delay: const Duration(milliseconds: 500),
-                    duration: const Duration(milliseconds: 400),
-                    curve: Curves.elasticOut,
+                    duration: AppAnimations.emphasisSlow,
+                    curve: AppAnimations.elasticOut,
                   ),
+            ),
+
+            // ── Registration FAB ──────────────────────────────────────────────────
+            Positioned(
+              bottom: MediaQuery.of(context).padding.bottom + 16,
+              left: 16,
+              child: const RegistrationFab(),
             ),
 
             // ── No results overlay ────────────────────────────────────────────
@@ -503,16 +637,20 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               Positioned.fill(
                 child: IgnorePointer(
                   child: Align(
-                    alignment: const Alignment(0, 0.15),
+                    // Responsive motion: shift the overlay up when the keyboard
+                    // is open so it stays visible above the IME (Phase 3).
+                    alignment: MediaQuery.of(context).viewInsets.bottom > 0
+                        ? const Alignment(0, -0.3)
+                        : const Alignment(0, 0.15),
                     child: const _NoResultsOverlay()
                         .animate()
                         .scale(
                           begin: const Offset(0.8, 0.8),
                           end: const Offset(1, 1),
-                          duration: const Duration(milliseconds: 250),
-                          curve: Curves.easeOutBack,
+                          duration: AppAnimations.standardSlow,
+                          curve: AppAnimations.easeOutBack,
                         )
-                        .fadeIn(duration: const Duration(milliseconds: 200)),
+                        .fadeIn(duration: AppAnimations.standardFade),
                   ),
                 ),
               ),
@@ -540,8 +678,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       FocusScope.of(context).unfocus();
                       ref.read(shopProvider.notifier).setQuery('');
                       Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => ShopDetailScreen(
+                        PageRouteBuilder<void>(
+                          pageBuilder: (_, __, ___) => ShopDetailScreen(
                             shop: shop,
                             distanceKm: _userLocation != null
                                 ? GeoDistance.km(
@@ -549,6 +687,34 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                                     LatLng(shop.lat, shop.lng),
                                   )
                                 : null,
+                          ),
+                          transitionsBuilder: (_, animation, __, child) {
+                            final isReverse =
+                                animation.status == AnimationStatus.reverse;
+                            final curved = CurvedAnimation(
+                              parent: animation,
+                              curve: AppAnimations.easeInOutCubic,
+                            );
+                            if (isReverse) {
+                              return FadeTransition(
+                                opacity: curved,
+                                child: child,
+                              );
+                            }
+                            return FadeTransition(
+                              opacity: curved,
+                              child: SlideTransition(
+                                position: Tween<Offset>(
+                                  begin: const Offset(0, 0.06),
+                                  end: Offset.zero,
+                                ).animate(curved),
+                                child: child,
+                              ),
+                            );
+                          },
+                          transitionDuration: AppAnimations.emphasis,
+                          reverseTransitionDuration: const Duration(
+                            milliseconds: 250,
                           ),
                         ),
                       );
@@ -618,7 +784,7 @@ class _AnimatedSearchBarState extends State<_AnimatedSearchBar> {
           borderRadius: 14,
           opacity: 0.94,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
+            duration: AppAnimations.standardMid,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
@@ -644,7 +810,7 @@ class _AnimatedSearchBarState extends State<_AnimatedSearchBar> {
                   fontSize: 14,
                 ),
                 prefixIcon: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
+                  duration: AppAnimations.standard,
                   child: Icon(
                     Icons.search,
                     key: ValueKey(_focused),
@@ -733,12 +899,12 @@ class _SearchDropdown extends StatelessWidget {
           ),
         )
         .animate()
-        .fadeIn(duration: const Duration(milliseconds: 150))
+        .fadeIn(duration: AppAnimations.microMedium)
         .slideY(
           begin: -0.08,
           end: 0,
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
+          duration: AppAnimations.chipMicro,
+          curve: AppAnimations.easeOutCubic,
         );
   }
 }
@@ -766,7 +932,7 @@ class _SearchResultTileState extends State<_SearchResultTile> {
       },
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 100),
+        duration: AppAnimations.micro,
         color: _pressed
             ? const Color(0xFFB87333).withValues(alpha: 0.06)
             : Colors.transparent,
@@ -850,7 +1016,7 @@ class _PressScaleFABState extends State<_PressScaleFAB> {
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedScale(
         scale: _pressed ? 0.88 : 1.0,
-        duration: const Duration(milliseconds: 100),
+        duration: AppAnimations.micro,
         child: GlassContainer(
           borderRadius: 14,
           opacity: 0.96,
@@ -917,10 +1083,9 @@ class _ToggleButtonState extends State<_ToggleButton> {
         child: Center(
           child: AnimatedScale(
             scale: _pressed ? 0.92 : 1.0,
-            duration: const Duration(milliseconds: 90),
+            duration: AppAnimations.micro,
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              duration: AppAnimations.chipMicro,
               decoration: BoxDecoration(
                 color: widget.isActive ? activeColor : Colors.white,
                 borderRadius: BorderRadius.circular(16),
@@ -941,28 +1106,40 @@ class _ToggleButtonState extends State<_ToggleButton> {
                   ),
                 ],
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    widget.icon,
-                    size: 13,
-                    color: widget.isActive
-                        ? Colors.white
-                        : const Color(0xFF4E5963),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    widget.label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: widget.isActive
-                          ? Colors.white
-                          : const Color(0xFF1A1A1B),
+              child: AnimatedPadding(
+                padding: widget.isActive
+                    ? const EdgeInsets.symmetric(horizontal: 12, vertical: 8)
+                    : const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                duration: AppAnimations.chipMicro,
+                curve: AppAnimations.easeOutCubic,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    AnimatedOpacity(
+                      opacity: widget.isActive ? 1.0 : 0.6,
+                      duration: AppAnimations.chipMicro,
+                      curve: AppAnimations.easeOutCubic,
+                      child: Icon(
+                        widget.icon,
+                        size: 13,
+                        color: widget.isActive
+                            ? Colors.white
+                            : const Color(0xFF4E5963),
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 4),
+                    Text(
+                      widget.label,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: widget.isActive
+                            ? Colors.white
+                            : const Color(0xFF1A1A1B),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -996,7 +1173,7 @@ class _ClearButtonState extends State<_ClearButton> {
       onTapCancel: () => setState(() => _pressed = false),
       child: AnimatedScale(
         scale: _pressed ? 0.92 : 1.0,
-        duration: const Duration(milliseconds: 90),
+        duration: AppAnimations.micro,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
           decoration: BoxDecoration(
@@ -1033,21 +1210,43 @@ class _NoResultsOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GlassContainer(
-      borderRadius: 14,
-      opacity: 0.95,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: const Row(
+      borderRadius: 16,
+      opacity: 0.96,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.search_off, color: Color(0xFF9E9E9E), size: 18),
-          SizedBox(width: 8),
-          Text(
+          // Lottie empty-state animation replaces the static icon.
+          // Falls back to a plain icon if the asset fails to load.
+          SizedBox(
+            width: 56,
+            height: 56,
+            child: Lottie.asset(
+              'assets/lottie/empty_state.json',
+              width: 56,
+              height: 56,
+              fit: BoxFit.contain,
+              repeat: true,
+              errorBuilder: (_, __, ___) => const Icon(
+                Icons.search_off,
+                color: Color(0xFF9E9E9E),
+                size: 32,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
             'No results found',
             style: TextStyle(
               color: Color(0xFF757575),
               fontSize: 14,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w600,
             ),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'Try adjusting your filters',
+            style: TextStyle(color: Color(0xFFA0A0A2), fontSize: 12),
           ),
         ],
       ),

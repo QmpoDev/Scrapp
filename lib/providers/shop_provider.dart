@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../data/data_loader.dart';
 import '../data/pricing_repository.dart';
+import '../data/supabase_shop_repository.dart';
 import '../models/junkshop.dart';
+import '../providers/supabase_provider.dart';
 import '../utils/schedule_parser.dart';
 
 // ---------------------------------------------------------------------------
@@ -83,19 +85,48 @@ const Object _sentinel = Object();
 // ViewModel — owns all business logic, exposes intent-based methods.
 // UI calls setQuery/setMunicipality/etc. rather than mutating state directly.
 class ShopNotifier extends StateNotifier<ShopState> {
-  ShopNotifier(this._bundle) : super(const ShopState()) {
+  ShopNotifier(this._repository) : super(const ShopState()) {
     _loadShops();
+    _subscribeRealtime();
   }
 
-  final AssetBundle _bundle;
+  final SupabaseShopRepository _repository;
+  RealtimeChannel? _channel;
 
   Future<void> _loadShops() async {
     try {
-      final shops = await DataLoader.load(_bundle);
+      final shops = await _repository.fetchShops();
       state = state.copyWith(shops: shops, isLoading: false, clearError: true);
     } catch (e) {
       state = state.copyWith(isLoading: false, errorMessage: e.toString());
     }
+  }
+
+  /// Public entry-point for callers that need to force a re-fetch (e.g. after
+  /// a successful token-gated edit so the map reflects the new values without
+  /// waiting for the realtime subscription).
+  Future<void> refresh() => _loadShops();
+
+  void _subscribeRealtime() {
+    final client = Supabase.instance.client;
+    _channel = client
+        .channel('junkshops_changes')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'junkshops',
+          callback: (payload) async {
+            // Re-fetch the full list on any change to keep state consistent
+            await _loadShops();
+          },
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    _channel?.unsubscribe();
+    super.dispose();
   }
 
   void setQuery(String query) => state = state.copyWith(searchQuery: query);
@@ -127,10 +158,10 @@ class ShopNotifier extends StateNotifier<ShopState> {
 // Providers
 // ---------------------------------------------------------------------------
 
-// rootBundle injected here so tests can substitute a mock bundle.
-final shopProvider = StateNotifierProvider<ShopNotifier, ShopState>(
-  (ref) => ShopNotifier(rootBundle),
-);
+final shopProvider = StateNotifierProvider<ShopNotifier, ShopState>((ref) {
+  final client = ref.watch(supabaseProvider);
+  return ShopNotifier(SupabaseShopRepository(client));
+});
 
 // All unique material names present in the loaded data — drives filter panels.
 final allMaterialsProvider = Provider<List<String>>((ref) {
@@ -166,6 +197,9 @@ final pricingBoundsProvider =
 final filteredShopsProvider = Provider<List<JunkshopModel>>((ref) {
   final state = ref.watch(shopProvider);
   var shops = state.shops;
+
+  // 0. Exclude rejected shops (they should never appear on the map)
+  shops = shops.where((s) => s.status != ShopStatus.rejected).toList();
 
   // 1. Municipality
   final municipality = state.selectedMunicipality;

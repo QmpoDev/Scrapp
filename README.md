@@ -1,6 +1,8 @@
 # Scrapp — Junkshop Directory App
 
-A mobile directory application for locating junkshops and recycling centers in **La Union, Philippines**. Built with Flutter, Scrapp allows residents and businesses to find nearby scrap buyers, compare material prices, and filter by location or material type. An internet connection is required to load map tiles (CartoDB/OpenStreetMap). The shop directory, search, and all filters work from bundled local data. Tapping Navigate hands off to the device's installed maps application (Google Maps, Waze, etc.) for routing, which also requires connectivity.
+A mobile directory application for locating junkshops and recycling centers in **La Union, Philippines**. Built with Flutter, Scrapp allows residents and businesses to find nearby scrap buyers, compare material prices, and filter by location or material type.
+
+The app now supports **zero-friction junkshop registration** — any user can submit a new listing directly from the map without creating an account. Security is enforced through GPS geofencing, device fingerprinting, and a locally-stored edit token. Submitted shops enter a `pending` state and are promoted to `verified` by an admin via a web dashboard.
 
 ---
 
@@ -10,6 +12,9 @@ A mobile directory application for locating junkshops and recycling centers in *
 - [Technical Stack](#technical-stack)
 - [Architecture Overview](#architecture-overview)
 - [Folder Structure](#folder-structure)
+- [Zero-Friction Registration System](#zero-friction-registration-system)
+- [Admin Dashboard](#admin-dashboard)
+- [Data Migration](#data-migration)
 - [Key Features & Engineering Rationale](#key-features--engineering-rationale)
 - [Applied CS Principles](#applied-cs-principles)
 - [Project Assets](#project-assets)
@@ -25,6 +30,7 @@ A mobile directory application for locating junkshops and recycling centers in *
 - Dart SDK ≥ 3.9.2
 - Android Studio or VS Code with Flutter extension
 - Android emulator or physical device (Android 5.0+ / iOS 12+)
+- A Supabase project (for the live backend)
 
 ### Steps
 
@@ -39,23 +45,41 @@ flutter pub get
 # 3. Generate app icons
 dart run flutter_launcher_icons
 
-# 4. Run on a connected device or emulator
-flutter run
+# 4. Run on a connected device or emulator (with Supabase credentials)
+flutter run \
+  --dart-define=SUPABASE_URL=https://your-project.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=your-anon-key
 
 # 5. Build a release APK
-flutter build apk --release
+flutter build apk --release \
+  --dart-define=SUPABASE_URL=https://your-project.supabase.co \
+  --dart-define=SUPABASE_ANON_KEY=your-anon-key
 ```
+
+### Supabase Setup
+
+1. Create a new Supabase project at [supabase.com](https://supabase.com)
+2. Run the SQL migrations in order from `supabase/migrations/`:
+   - `001_create_junkshops.sql` — main table with PostGIS geography column
+   - `002_create_otp_tokens.sql` — OTP recovery table
+   - `003_rls_policies.sql` — Row Level Security policies
+   - `004_update_shop_function.sql` — token-gated update function
+   - `005_otp_verify_function.sql` — OTP verification function
+3. Enable the PostGIS extension in your Supabase project (Database → Extensions)
+4. Create a `storefront-photos` storage bucket (public)
+5. Run the migration script to seed existing shops (see [Data Migration](#data-migration))
 
 ### Permissions Required
 
 | Permission | Platform | Purpose |
 |---|---|---|
-| `ACCESS_FINE_LOCATION` | Android | GPS coordinates for user location dot and distance calculation |
+| `ACCESS_FINE_LOCATION` | Android | GPS for user location and shop registration geofencing |
 | `ACCESS_COARSE_LOCATION` | Android | Fallback location accuracy |
 | `NSLocationWhenInUseUsageDescription` | iOS | Same as above |
-| `INTERNET` | Android | Map tile loading (CartoDB/OpenStreetMap) and navigation deep-links |
-
-> The shop directory, search, and all filters work without location permission — the user dot and distance labels are simply hidden. Map tiles and navigation require an active internet connection.
+| `CAMERA` | Android & iOS | Storefront photo capture during registration |
+| `READ_MEDIA_IMAGES` | Android 13+ | Required by image_picker |
+| `WRITE_EXTERNAL_STORAGE` | Android ≤ 12 | Required by image_picker |
+| `INTERNET` | Android | Map tiles, Supabase API, navigation deep-links |
 
 ---
 
@@ -69,6 +93,10 @@ flutter build apk --release
 | Map Rendering | flutter_map + latlong2 | ^7.0.2 / ^0.9.0 |
 | Map Tiles | CartoDB Light Matter (HTTPS) | — |
 | Location Services | geolocator | ^13.0.2 |
+| Backend / Database | Supabase + PostGIS | — |
+| Camera / Photo | image_picker | ^1.1.2 |
+| Secure Storage | flutter_secure_storage | ^9.2.2 |
+| Device Identity | device_info_plus | ^10.1.2 |
 | Navigation / Deep Links | url_launcher | ^6.3.1 |
 | Persistent Preferences | shared_preferences | ^2.3.3 |
 | UI Animations | flutter_animate | ^4.5.0 |
@@ -83,43 +111,51 @@ flutter build apk --release
 Scrapp follows a **layered MVVM (Model–View–ViewModel)** pattern. The three layers have strict boundaries: the View never touches raw data, the ViewModel never imports Flutter widgets, and the Data layer has no knowledge of UI state.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  VIEW LAYER                                             │
-│  lib/screens/   lib/widgets/                            │
-│  MapScreen · ShopDetailScreen · SplashScreen            │
-│  JunkshopBottomSheet · Filter Sheets · WelcomeModal     │
-└────────────────────┬────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  VIEW LAYER                                                         │
+│  lib/screens/   lib/widgets/                                        │
+│  MapScreen · ShopDetailScreen · SplashScreen                        │
+│  RegistrationPinScreen · RegistrationFormScreen                     │
+│  RegistrationSuccessScreen · ShopEditScreen · ClaimShopScreen       │
+│  JunkshopBottomSheet · Filter Sheets · WelcomeModal                 │
+│  RegistrationFab · PendingStatusBadge · AnimatedMarker              │
+└────────────────────┬────────────────────────────────────────────────┘
                      │  ref.watch / ref.read
-┌────────────────────▼────────────────────────────────────┐
-│  VIEWMODEL / STATE LAYER                                │
-│  lib/providers/shop_provider.dart                       │
-│  ShopNotifier · ShopState · filteredShopsProvider       │
-│  allMaterialsProvider · pricingBoundsProvider           │
-└────────────────────┬────────────────────────────────────┘
-                     │  DataLoader.load() / PricingRepository.load()
-┌────────────────────▼────────────────────────────────────┐
-│  DATA LAYER                                             │
-│  lib/data/   lib/models/   lib/utils/                   │
-│  DataLoader · PricingRepository · JunkshopModel         │
-│  MaterialPrice · ScheduleParser · GeoDistance           │
-│  NavigationHandler                                      │
-└─────────────────────────────────────────────────────────┘
-                     │  AssetBundle (rootBundle)
-┌────────────────────▼────────────────────────────────────┐
-│  ASSETS (read-only, bundled at compile time)            │
-│  junkshops.json · scrap_standard_pricing.json           │
-│  la_union_municipalities.json                           │
-└─────────────────────────────────────────────────────────┘
+┌────────────────────▼────────────────────────────────────────────────┐
+│  VIEWMODEL / STATE LAYER                                            │
+│  lib/providers/                                                     │
+│  ShopNotifier · ShopState · filteredShopsProvider                   │
+│  RegistrationNotifier · RegistrationState                           │
+│  editTokenProvider · deviceFingerprintProvider                      │
+│  supabaseProvider · tokenStoreProvider                              │
+└────────────────────┬────────────────────────────────────────────────┘
+                     │  SupabaseShopRepository / TokenStore / Services
+┌────────────────────▼────────────────────────────────────────────────┐
+│  DATA / SERVICE LAYER                                               │
+│  lib/data/   lib/models/   lib/services/   lib/utils/              │
+│  SupabaseShopRepository · TokenStore · SecureTokenStore             │
+│  GeofenceService · PhotoService · OtpService                        │
+│  JunkshopModel · ShopStatus · MaterialPrice                         │
+│  ScheduleParser · GeoDistance · NavigationHandler                   │
+└────────────────────┬────────────────────────────────────────────────┘
+                     │  Supabase REST + Realtime
+┌────────────────────▼────────────────────────────────────────────────┐
+│  BACKEND (Supabase)                                                 │
+│  junkshops table (PostGIS) · otp_tokens table                       │
+│  RLS policies · update_shop_with_token() · verify_otp_and_recover() │
+│  Supabase Storage (storefront-photos bucket)                        │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow
 
-1. `main()` wraps the app in a `ProviderScope`, making all Riverpod providers available globally.
-2. `ShopNotifier` initialises on first access and calls `DataLoader.load(rootBundle)` asynchronously.
-3. `DataLoader` reads `scrap_standard_pricing.json` via `PricingRepository`, builds a bounds map, then parses `junkshops.json` — injecting randomised per-shop prices before constructing each `JunkshopModel`.
-4. The loaded list is stored in `ShopState`. All filter state (search query, municipality, materials, price range) lives in the same immutable value object.
-5. `filteredShopsProvider` is a derived (synchronous) provider that re-runs whenever `ShopState` changes, applying five sequential filter steps and returning the narrowed list.
-6. `MapScreen` watches both `shopProvider` (for filter state) and `filteredShopsProvider` (for the marker list). It calls intent methods on `ShopNotifier` — never mutating state directly.
+1. `main()` initialises Supabase before `runApp`, then wraps the app in a `ProviderScope`.
+2. `ShopNotifier` fetches shops from Supabase on startup and subscribes to Realtime changes.
+3. `filteredShopsProvider` derives the filtered view, excluding `rejected` shops.
+4. `MapScreen` renders markers colour-coded by status: copper for `verified`, amber for `pending`.
+5. Tapping the "+" FAB starts the registration flow via `RegistrationNotifier`.
+6. On submission, the app enforces GPS geofencing (50 m), device rate limiting (1/24 h), photo capture, and Supabase insert.
+7. The returned `edit_token` is stored in `flutter_secure_storage` for future edits.
 
 ---
 
@@ -127,41 +163,82 @@ Scrapp follows a **layered MVVM (Model–View–ViewModel)** pattern. The three 
 
 ```
 lib/
-├── main.dart                   # Entry point — ProviderScope + MaterialApp
-├── theme.dart                  # AppTheme: colour palette + TextTheme
+├── main.dart                        # Entry point — Supabase init + ProviderScope
+├── theme.dart                       # AppTheme: colour palette + TextTheme
 │
 ├── data/
-│   ├── data_loader.dart        # Orchestrates JSON parsing + price injection
-│   └── pricing_repository.dart # Parses scrap_standard_pricing.json; owns kMaterialToPricingKey
+│   ├── data_loader.dart             # Legacy local JSON loader (kept for migration script)
+│   ├── pricing_repository.dart      # Parses scrap_standard_pricing.json
+│   ├── supabase_shop_repository.dart # All Supabase queries for junkshops
+│   └── token_store.dart             # TokenStore interface + SecureTokenStore
 │
 ├── models/
-│   └── junkshop.dart           # JunkshopModel + MaterialPrice (fromJson / toJson / displayPrice)
+│   └── junkshop.dart                # JunkshopModel + ShopStatus + MaterialPrice
 │
 ├── providers/
-│   └── shop_provider.dart      # ShopState · ShopNotifier · all derived providers
+│   ├── shop_provider.dart           # ShopNotifier · filteredShopsProvider
+│   ├── registration_provider.dart   # RegistrationNotifier state machine
+│   ├── supabase_provider.dart       # SupabaseClient singleton
+│   ├── device_fingerprint_provider.dart
+│   ├── token_store_provider.dart
+│   └── edit_token_provider.dart
 │
 ├── screens/
-│   ├── map_screen.dart         # Primary screen: map, search bar, filter chips
-│   ├── shop_detail_screen.dart # Full shop profile with price list
-│   └── splash_screen.dart      # Video splash with fallback navigation
+│   ├── map_screen.dart              # Primary screen: map, search, filters, FAB
+│   ├── shop_detail_screen.dart      # Full shop profile with price list
+│   ├── splash_screen.dart           # Video splash with fallback navigation
+│   ├── registration_pin_screen.dart # Drop-pin map for shop location
+│   ├── registration_form_screen.dart # Shop name / owner / contact form
+│   ├── registration_success_screen.dart
+│   ├── shop_edit_screen.dart        # Token-gated edit form
+│   └── claim_shop_screen.dart       # Two-step OTP recovery flow
+│
+├── services/
+│   ├── geofence_service.dart        # Haversine distance + 50 m geofence check
+│   ├── photo_service.dart           # Camera capture + 2 MB compression
+│   └── otp_service.dart             # OTP send/verify via Supabase RPC
 │
 ├── utils/
-│   ├── distance_calculator.dart # GeoDistance.km() — Haversine formula
-│   ├── navigation_handler.dart  # geo: / maps.google.com deep-link launcher
-│   └── schedule_parser.dart     # Parses "H:MM AM/PM - H:MM AM/PM" strings
+│   ├── distance_calculator.dart     # GeoDistance.km() — Haversine formula
+│   ├── navigation_handler.dart      # geo: / maps.google.com deep-link launcher
+│   └── schedule_parser.dart         # Parses "H:MM AM/PM - H:MM AM/PM" strings
 │
 └── widgets/
-    ├── animated_marker.dart         # Copper pin with press-scale + pulsing user dot
+    ├── animated_marker.dart         # Status-aware pin (copper/amber/green)
     ├── glass_container.dart         # Frosted-glass surface (BackdropFilter)
-    ├── junkshop_bottom_sheet.dart   # Quick-glance sheet on marker tap
-    ├── material_filter_sheet.dart   # Multi-select material filter
-    ├── municipality_filter_sheet.dart # Single-select municipality filter
-    ├── price_filter_sheet.dart      # Material + RangeSlider price filter
-    └── welcome_modal.dart           # First-launch onboarding dialog
+    ├── junkshop_bottom_sheet.dart   # Quick-glance sheet with Edit/Claim buttons
+    ├── pending_status_badge.dart    # Amber "Pending Verification" pill
+    ├── registration_fab.dart        # Amber "+" FAB with GPS loading state
+    ├── material_filter_sheet.dart
+    ├── municipality_filter_sheet.dart
+    ├── price_filter_sheet.dart
+    └── welcome_modal.dart
+
+supabase/
+└── migrations/
+    ├── 001_create_junkshops.sql
+    ├── 002_create_otp_tokens.sql
+    ├── 003_rls_policies.sql
+    ├── 004_update_shop_function.sql
+    └── 005_otp_verify_function.sql
+
+tools/
+└── migration/
+    ├── pubspec.yaml
+    └── migrate_shops.dart           # Seeds existing JSON shops into Supabase
+
+admin-dashboard/                     # Next.js 14 admin verification dashboard
+├── lib/supabase.ts
+├── pages/
+│   ├── dashboard/index.tsx          # Pending submissions list
+│   └── api/shops/[id]/
+│       ├── approve.ts
+│       └── reject.ts
+└── package.json
 
 assets/
 ├── data/
-│   ├── junkshops.json               # 17 shop records (wrapped-object format)
+│   ├── junkshops.json               # 17 legacy shop records (used by migration script)
 │   ├── scrap_standard_pricing.json  # Standard price bounds per material
 │   └── la_union_municipalities.json # Municipality list for the location filter
 ├── images/logo/
@@ -170,121 +247,139 @@ assets/
 
 ---
 
+## Zero-Friction Registration System
+
+The registration system lets any user submit a junkshop listing without creating an account. Security is enforced through three physical credentials:
+
+### UX Flow
+
+1. **Tap the "+" FAB** (bottom-left of the map) — the app acquires a high-accuracy GPS fix (≤ 20 m, 15 s timeout)
+2. **Place the pin** — a full-screen map opens at zoom 17; pan to position the pin over the shop's rooftop
+3. **Fill in details** — Shop Name, Owner Full Name, Contact Number (3 fields, no password)
+4. **Take a photo** — the device camera opens; gallery uploads are blocked to enforce physical presence
+5. **Submit** — the app re-checks GPS (must be within 50 m of the pin), checks device rate limit (1 submission/24 h), uploads the photo, and inserts the record
+
+### Security Layer
+
+| Mechanism | Implementation |
+|---|---|
+| **GPS Geofencing** | Haversine distance between submission GPS and pin must be < 50 m |
+| **Device Fingerprinting** | Android ID / iOS `identifierForVendor` limits to 1 submission per device per 24 hours |
+| **Edit Token** | UUID returned by the database on insert, stored in `flutter_secure_storage`; required to edit the listing |
+
+### Shop Status
+
+| Status | Pin Colour | Visible on Map |
+|---|---|---|
+| `pending` | Amber `#FFA000` | Yes |
+| `verified` | Copper `#B87333` | Yes |
+| `rejected` | — | No |
+
+### Editing & Token Recovery
+
+- The **"Edit"** button appears in the bottom sheet only if the device holds a matching edit token
+- If the token is lost (new phone), the **"Claim This Shop"** button triggers a 6-digit OTP sent to the registered contact number
+- OTP flow: 5-minute expiry, max 3 attempts, 30-minute lockout, max 3 resends
+
+---
+
+## Admin Dashboard
+
+The `admin-dashboard/` directory contains a Next.js 14 web app for reviewing pending submissions.
+
+### Features
+
+- Paginated list of pending shops (25 per page, oldest first)
+- Per-shop: name, owner, contact, municipality, submission timestamp, storefront photo, Google Street View link
+- **Approve** — sets `status = 'verified'`, shop pin turns copper for all users
+- **Reject** — requires a mandatory rejection reason (1–500 chars), sets `status = 'rejected'`, pin disappears from map
+- Filter by municipality and date range
+
+### Running the Dashboard
+
+```bash
+cd admin-dashboard
+cp .env.local.example .env.local
+# Fill in NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
+npm install
+npm run dev
+```
+
+> The service-role key bypasses RLS and must never be exposed to the browser. The dashboard is server-side rendered — the key only lives on the server.
+
+---
+
+## Data Migration
+
+To seed the existing 17 local JSON shops into Supabase as pre-verified records:
+
+```bash
+cd tools/migration
+dart pub get
+SUPABASE_URL=https://your-project.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key \
+dart run migrate_shops.dart
+```
+
+The script derives a stable UUID v5 per shop from `name + '|' + municipality`, so re-running it is safe (idempotent upsert).
+
+---
+
 ## Key Features & Engineering Rationale
 
-### 1. Local-First, Offline-Capable Data Strategy
+### 1. Zero-Friction Registration
 
-**What:** All shop data is bundled as JSON assets. No network request is made to browse shops, search, or filter — the directory itself works from local data.
+**What:** Shop owners register without creating an account. Security is enforced through GPS geofencing, device fingerprinting, and a locally-stored UUID edit token.
 
-**Why:** La Union has variable connectivity. Bundling data guarantees the core directory experience (browsing, searching, filtering, viewing prices) is always available regardless of signal. Map tiles (CartoDB/OpenStreetMap) do require an internet connection to render, and navigation hands off to an external maps app which also needs connectivity. The `AssetBundle` abstraction means the data source can be swapped (e.g., to a remote API) without touching any provider or UI code.
-
----
-
-### 2. Immutable State with `copyWith` and the Sentinel Pattern
-
-**What:** `ShopState` is a `const`-constructable value object. Every mutation returns a new instance via `copyWith`. Nullable fields that need to be explicitly set to `null` (e.g., clearing a municipality filter) use a private `_sentinel` object as the default parameter value.
-
-**Why:** Mutable state is the primary source of hard-to-reproduce bugs in reactive UIs. Immutable state makes every transition explicit and traceable. The sentinel pattern solves Dart's limitation where `null` cannot be distinguished from "not provided" in optional named parameters — a common pitfall when building `copyWith` for nullable fields.
-
-```dart
-// Without sentinel: impossible to clear selectedMunicipality to null
-ShopState copyWith({ String? selectedMunicipality }) { ... }
-
-// With sentinel: null means "clear it", omitting means "keep current"
-ShopState copyWith({ Object? selectedMunicipality = _sentinel }) { ... }
-```
+**Why:** Non-tech-savvy junkshop owners in La Union are unlikely to complete a traditional sign-up flow. Removing the login barrier maximises adoption while the physical-presence checks (GPS + camera) prevent remote abuse.
 
 ---
 
-### 3. Per-Shop Randomised Pricing (Session-Stable)
+### 2. Supabase Realtime for Live Status Updates
 
-**What:** At load time, `DataLoader._generatePrices()` generates a unique price for each material at each shop by randomising within the standard bounds from `scrap_standard_pricing.json`. Prices are generated once per app session and remain stable until the app restarts.
+**What:** `ShopNotifier` subscribes to Postgres changes on the `junkshops` table. When an admin approves or rejects a shop, the pin colour updates for all connected users within seconds.
 
-**Why:** Real junkshops vary their rates. Hardcoding identical prices across all shops would make the price filter meaningless. The randomisation algorithm uses a single `Random()` instance shared across all shops (not re-seeded per shop), ensuring statistical independence between shops. The algorithm biases `randomMin` toward the lower half of the range (multiplied by 0.5) to reflect realistic market behaviour where most shops pay below the ceiling rate.
-
-```
-randomMin = bounds.min + rng.nextDouble() × (bounds.max - bounds.min) × 0.5
-randomMax = randomMin + rng.nextDouble() × (bounds.max - randomMin)
-```
-
-Both values are rounded to 2 decimal places and clamped to `[bounds.min, bounds.max]` with `min ≤ max` guaranteed.
+**Why:** The admin verification loop is the critical path. Without Realtime, a newly verified shop would only appear after the user restarts the app. The subscription is set up once in `ShopNotifier._subscribeRealtime()` and torn down in `dispose()`.
 
 ---
 
-### 4. Composable Filter Pipeline
+### 3. Token-Gated Editing via SECURITY DEFINER Function
 
-**What:** `filteredShopsProvider` applies five filters in a fixed sequence: Municipality → Open Now → Material → Price → Text Search. Each step operates on the output of the previous step.
+**What:** Shop edits are routed through a PostgreSQL `SECURITY DEFINER` function (`update_shop_with_token`) that validates the edit token server-side before applying changes. Anonymous users have no direct UPDATE permission.
 
-**Why:** Sequential composition is more predictable than parallel filtering with AND logic applied at the end. It also short-circuits naturally — if the municipality filter reduces 17 shops to 3, the remaining four steps only process 3 records. The provider is declared as a synchronous `Provider<List<JunkshopModel>>` (not a `FutureProvider`) because all inputs are already loaded into `ShopState`; no async work is needed at filter time.
-
-**Price filter overlap logic:** A shop qualifies if its price range *overlaps* the selected range, not just if its `min` falls within it. This is the correct interval-overlap condition:
-
-```
-shop.min ≤ filter.end  AND  shop.max ≥ filter.start
-```
-
-This prevents false negatives where a shop paying ₱501–₱645 for Copper would be excluded by a ₱510–₱560 filter under a naive `min-in-range` check.
+**Why:** RLS alone cannot enforce token validation because the token value is stored in the same row being updated. A SECURITY DEFINER function runs with elevated privileges, reads the stored token, compares it to the submitted token, and only then applies the update — preventing any bypass.
 
 ---
 
-### 5. Schedule Parsing and Midnight-Spanning Ranges
+### 4. Immutable State with `copyWith` and the Sentinel Pattern
 
-**What:** `ScheduleParser.parse()` uses a single regex to extract open/close times from strings like `"8:00 AM - 5:00 PM"`. `ScheduleParser.isOpen()` evaluates the current device time against the parsed range.
+**What:** `ShopState` and `RegistrationState` are `const`-constructable value objects. Every mutation returns a new instance via `copyWith`. Nullable fields use a private `_sentinel` object to distinguish "not provided" from explicit `null`.
 
-**Why:** The parser handles midnight-spanning schedules (e.g., `"10:00 PM - 2:00 AM"`) by detecting when `closeMinutes < openMinutes` in total-minutes representation and applying OR logic instead of AND:
-
-```dart
-// Normal range: open ≤ now ≤ close
-// Overnight range: now ≥ open OR now ≤ close
-```
-
-This is a non-trivial edge case that naive implementations miss, causing shops with late-night hours to always appear closed.
+**Why:** Mutable state is the primary source of hard-to-reproduce bugs in reactive UIs. The sentinel pattern solves Dart's limitation where `null` cannot be distinguished from "not provided" in optional named parameters.
 
 ---
 
-### 6. Haversine Distance Calculation
+### 5. Composable Filter Pipeline
 
-**What:** `GeoDistance.km(LatLng a, LatLng b)` computes the great-circle distance between two coordinates using the Haversine formula.
+**What:** `filteredShopsProvider` applies filters in a fixed sequence: Rejected exclusion → Municipality → Open Now → Material → Price → Text Search. Each step operates on the output of the previous step.
 
-**Why:** The Haversine formula accounts for Earth's spherical geometry. The simpler Euclidean distance on raw lat/lng coordinates produces significant errors at the distances relevant to this app (~5–50 km). The function was extracted from `MapScreen` into `lib/utils/distance_calculator.dart` so it can be unit-tested independently of the widget tree — a direct application of the Single Responsibility Principle.
-
----
-
-### 7. Navigation Deep-Link Strategy
-
-**What:** `NavigationHandler.launch()` tries `geo:<lat>,<lng>?q=<lat>,<lng>` first, then falls back to `https://maps.google.com/maps?q=<lat>,<lng>`. Both use `LaunchMode.externalApplication`.
-
-**Why:** The `geo:` URI scheme is the Android standard and opens any registered maps app (Google Maps, Waze, etc.). The HTTPS fallback works cross-platform and triggers Google Maps via universal links on iOS. `LaunchMode.externalApplication` is critical — without it, `url_launcher` defaults to opening the URL inside the app, where the `geo:` scheme has no handler and silently fails.
+**Why:** Sequential composition is more predictable than parallel filtering. It also short-circuits naturally — if the municipality filter reduces 17 shops to 3, the remaining steps only process 3 records.
 
 ---
 
-### 8. Location Permission UX
+### 6. Per-Shop Randomised Pricing (Session-Stable)
 
-**What:** On first launch, the app shows the welcome modal first, then requests location permission. The permission request fires automatically — the user does not need to tap the GPS button.
+**What:** At load time, `DataLoader._generatePrices()` generates a unique price for each material at each shop by randomising within the standard bounds from `scrap_standard_pricing.json`. Prices are stable for the lifetime of the app session.
 
-**Why:** Showing a system permission dialog immediately on cold start (before any context) is a known UX anti-pattern that leads to high denial rates. By sequencing the welcome modal first, the user understands the app's purpose before the OS dialog appears, increasing the likelihood of granting permission. The sequencing is implemented with `await showWelcomeModalIfNeeded(context)` followed by `_initLocation()` inside a single `addPostFrameCallback`.
-
----
-
-### 9. Responsive Layout Strategy
-
-**What:** Padding, font sizes, and dialog heights are computed as proportions of `MediaQuery.sizeOf(context)` and clamped to min/max values.
-
-**Why:** Flutter's `MediaQuery` provides logical pixels, not physical pixels, making proportional sizing device-independent. The `clamp()` pattern prevents layouts from becoming unusably small on 320px-wide phones or excessively large on tablets. For example:
-
-```dart
-final hPad = (screenWidth * 0.053).clamp(14.0, 24.0);
-```
-
-This gives 17px padding on a 320px phone, 20px on a 390px phone, and caps at 24px on wide screens — all from a single expression.
+**Why:** Real junkshops vary their rates. Hardcoding identical prices across all shops would make the price filter meaningless.
 
 ---
 
-### 10. Glass Morphism Surface
+### 7. Schedule Parsing and Midnight-Spanning Ranges
 
-**What:** `GlassContainer` wraps its child in a `BackdropFilter` with a Gaussian blur (`sigmaX/Y = 12`) and a semi-transparent white fill.
+**What:** `ScheduleParser.isOpen()` handles overnight schedules (e.g., `"10:00 PM - 2:00 AM"`) by detecting when `closeMinutes < openMinutes` and applying OR logic instead of AND.
 
-**Why:** The map is always visible behind the UI overlays. A solid white background would obscure the map context. The frosted-glass effect maintains spatial awareness while keeping text legible. `ClipRRect` is required before `BackdropFilter` to prevent the blur from bleeding outside the rounded corners — a common Flutter gotcha.
+**Why:** A naive implementation would cause shops with late-night hours to always appear closed — a non-trivial edge case that only surfaces with real data.
 
 ---
 
@@ -292,15 +387,13 @@ This gives 17px padding on a 320px phone, 20px on a 390px phone, and caps at 24p
 
 | Principle | Where Applied |
 |---|---|
-| **Single Responsibility** | `PricingRepository` only parses pricing JSON; `DataLoader` only orchestrates shop loading; `GeoDistance` only computes distance |
-| **Open/Closed** | `DataLoader` supports both flat-array and wrapped-object JSON formats without modifying the parsing logic for either |
-| **Dependency Inversion** | `ShopNotifier` and `DataLoader` accept `AssetBundle` as a parameter rather than importing `rootBundle` directly, enabling mock injection in tests |
-| **DRY** | `kMaterialToPricingKey` is defined once in `pricing_repository.dart` and imported by both `DataLoader` and `pricingBoundsProvider` |
-| **Separation of Concerns** | View layer calls intent methods (`setQuery`, `setPriceFilter`); ViewModel owns all filter logic; Data layer owns all parsing |
-| **Immutability** | `ShopState`, `JunkshopModel`, `MaterialPrice`, and `PricingBounds` are all `const`-constructable value objects |
-| **Async Programming** | `DataLoader.load()`, `PricingRepository.load()`, and `NavigationHandler.launch()` are all `async/await` Futures; `pricingBoundsProvider` is a `FutureProvider` |
-
----
+| **Single Responsibility** | `GeofenceService` only computes distances; `PhotoService` only handles capture/compression; `OtpService` only manages OTP flows |
+| **Open/Closed** | `TokenStore` is an abstract interface; `SecureTokenStore` is the production implementation; tests can inject a mock |
+| **Dependency Inversion** | `RegistrationNotifier` accepts `SupabaseShopRepository` and `TokenStore` as constructor parameters, enabling test injection |
+| **DRY** | `kMaterialToPricingKey` is defined once in `pricing_repository.dart`; form validation rules are shared between `RegistrationFormScreen` and `ShopEditScreen` |
+| **Separation of Concerns** | View calls intent methods; ViewModel owns state transitions; Data layer owns all Supabase queries |
+| **Immutability** | `ShopState`, `RegistrationState`, `JunkshopModel`, `MaterialPrice` are all `const`-constructable value objects |
+| **Async Programming** | All network operations use `async/await`; GPS acquisition uses `.timeout()` to enforce hard deadlines |
 
 ---
 
@@ -308,8 +401,8 @@ This gives 17px padding on a 320px phone, 20px on a 390px phone, and caps at 24p
 
 | Asset | Format | Purpose |
 |---|---|---|
-| `junkshops.json` | JSON (wrapped object) | 17 junkshop records with coordinates, schedule, accepted materials |
-| `scrap_standard_pricing.json` | JSON (nested object) | Standard min/max price bounds per material category |
+| `junkshops.json` | JSON | 17 legacy shop records (used by migration script) |
+| `scrap_standard_pricing.json` | JSON | Standard min/max price bounds per material category |
 | `la_union_municipalities.json` | JSON | Municipality list for the location filter chip |
 | `SplashAnimation_Scrapp.mp4` | MP4 | Branded splash screen video |
 | `scrapp-s-logo.png` | PNG | App icon and in-app logo |
@@ -318,14 +411,12 @@ This gives 17px padding on a 320px phone, 20px on a 390px phone, and caps at 24p
 
 ## Developer's Note
 
-This project was built to a standard that reflects the transition from a course-level implementation to professional-grade mobile development. Several deliberate engineering decisions were made beyond what the course requirements demanded:
+This project was built to a standard that reflects the transition from a course-level implementation to professional-grade mobile development. The zero-friction registration system in particular required careful thinking about security without authentication — a genuinely hard problem.
 
-**Testability by design.** `AssetBundle` injection into `ShopNotifier` and `DataLoader` means the entire data pipeline can be tested with a `FakeAssetBundle` — no device, no file system, no Flutter widget tree required. This is the Dependency Inversion Principle applied at the appropriate level for a mobile app.
+**Physical credentials over passwords.** The GPS geofence, camera enforcement, and device fingerprint together form a "proof of presence" system. None of these checks are individually unbreakable, but together they raise the cost of abuse high enough to deter casual fraud while keeping the UX frictionless for legitimate owners.
 
-**A single source of truth for data mapping.** The `kMaterialToPricingKey` constant was centralised in `pricing_repository.dart` after identifying that it was duplicated across two files. Duplication of this kind is the most common source of silent bugs in data-heavy apps — one copy gets updated, the other doesn't.
+**Server-side token validation.** The `update_shop_with_token` SECURITY DEFINER function is the correct pattern for this problem. Doing the token check client-side would be trivially bypassable. Doing it in a regular RLS policy is impossible because the token is in the same row being updated. The SECURITY DEFINER function is the only approach that is both secure and correct.
 
-**Filter correctness over filter simplicity.** The price filter uses interval-overlap logic rather than a simpler point-in-range check. The schedule parser handles midnight-spanning hours. These edge cases were identified through systematic QA analysis of the filter logic against the actual data, not discovered at runtime.
+**Testability by design.** `SupabaseShopRepository`, `TokenStore`, `GeofenceService`, and `PhotoService` are all constructor-injected into `RegistrationNotifier`. This means the entire registration pipeline can be tested with mock implementations — no device, no network, no camera required.
 
-**Responsive layout without a single `if (width < 360)` branch.** All responsive sizing uses proportional clamping (`value.clamp(min, max)`), which scales continuously across all screen sizes rather than snapping between breakpoints. This produces a more natural feel on the wide range of Android hardware in the Philippine market.
-
-**Comment discipline.** Comments in this codebase explain *why* a decision was made, not *what* the code does. The code itself communicates the what; the comments communicate the engineering rationale. This distinction is the difference between documentation that helps future maintainers and documentation that adds noise.
+**Comment discipline.** Comments in this codebase explain *why* a decision was made, not *what* the code does. The code itself communicates the what; the comments communicate the engineering rationale.

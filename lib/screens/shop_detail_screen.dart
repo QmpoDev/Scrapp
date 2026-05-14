@@ -1,10 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/junkshop.dart';
+import '../utils/app_animations.dart';
 import '../utils/navigation_handler.dart';
 import '../utils/schedule_parser.dart';
 
+/// Full shop profile screen.
+///
+/// Hero receiver: the shop name in the [SliverAppBar] is wrapped in a [Hero]
+/// with tag `shop_name_<id>`, matching the source tag in [JunkshopBottomSheet].
+/// The [flightShuttleBuilder] on the source side handles the in-flight widget,
+/// so the receiver just needs the matching tag.
+///
+/// Content entrance: each section (status row, info rows, buttons, materials,
+/// prices) animates in with a staggered fade + slideY sequence, giving the
+/// screen a choreographed "reveal" feel (Phase 2 — Staggered Animations).
 class ShopDetailScreen extends StatelessWidget {
   final JunkshopModel shop;
   final double? distanceKm;
@@ -23,7 +35,6 @@ class ShopDetailScreen extends StatelessWidget {
     final appBarHeight = (screenHeight * 0.19).clamp(110.0, 160.0);
     final contentPadding = (screenWidth * 0.053).clamp(14.0, 24.0);
 
-    // Group prices by ferrous / non-ferrous / other for the price list sections.
     final magneticItems = shop.prices
         .where((p) => _isFerrousMetal(p.material))
         .toList();
@@ -41,7 +52,7 @@ class ShopDetailScreen extends StatelessWidget {
       backgroundColor: Colors.white,
       body: CustomScrollView(
         slivers: [
-          // ── App bar ──────────────────────────────────────────────────────
+          // ── App bar — Hero receiver ───────────────────────────────────────
           SliverAppBar(
             expandedHeight: appBarHeight,
             pinned: true,
@@ -50,16 +61,25 @@ class ShopDetailScreen extends StatelessWidget {
             flexibleSpace: FlexibleSpaceBar(
               centerTitle: true,
               titlePadding: const EdgeInsets.fromLTRB(56, 0, 56, 14),
-              title: Text(
-                shop.name,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
+              // Hero tag matches the source in JunkshopBottomSheet.
+              // The text style here is the "destination" state of the flight.
+              title: Hero(
+                tag: 'shop_name_${shop.id}',
+                child: Material(
+                  color: Colors.transparent,
+                  child: Text(
+                    shop.name,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                      decoration: TextDecoration.none,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
               ),
               background: Container(
                 decoration: const BoxDecoration(
@@ -95,160 +115,114 @@ class ShopDetailScreen extends StatelessWidget {
                 children: [
                   // ── Status row ──────────────────────────────────────────
                   Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2E7D32).withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          shop.category,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2E7D32),
+                        children: [
+                          _StatusBadge(
+                            label: shop.category,
+                            color: const Color(0xFF2E7D32),
                           ),
-                        ),
-                      ),
-                      if (isOpenNow != null) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isOpenNow
-                                ? const Color(0xFF2E7D32).withValues(alpha: 0.1)
-                                : Colors.grey.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            isOpenNow ? 'Open Now' : 'Closed',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                          if (isOpenNow != null) ...[
+                            const SizedBox(width: 8),
+                            _StatusBadge(
+                              label: isOpenNow ? 'Open Now' : 'Closed',
                               color: isOpenNow
                                   ? const Color(0xFF2E7D32)
                                   : Colors.grey,
                             ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+                          ],
+                        ],
+                      )
+                      .animate()
+                      .fadeIn(duration: AppAnimations.standardSlow)
+                      .slideY(
+                        begin: 0.15,
+                        end: 0,
+                        duration: AppAnimations.emphasis,
+                        curve: AppAnimations.easeOutCubic,
+                      ),
 
                   const SizedBox(height: 20),
 
-                  // ── Info rows ───────────────────────────────────────────
-                  _InfoRow(
-                    icon: Icons.location_on_outlined,
-                    label: 'Address',
-                    value: shop.address.isNotEmpty ? shop.address : 'N/A',
-                  ),
-                  if (shop.municipality.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    _InfoRow(
-                      icon: Icons.map_outlined,
-                      label: 'Municipality',
-                      value: shop.municipality,
-                    ),
-                  ],
-                  if (distanceKm != null) ...[
-                    const SizedBox(height: 10),
-                    _InfoRow(
-                      icon: Icons.near_me_outlined,
-                      label: 'Distance',
-                      value: distanceKm! < 1
-                          ? '${(distanceKm! * 1000).toStringAsFixed(0)} m away'
-                          : '${distanceKm!.toStringAsFixed(1)} km away',
-                    ),
-                  ],
-                  if (shop.schedule.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    _InfoRow(
-                      icon: Icons.access_time_outlined,
-                      label: 'Hours',
-                      value: shop.schedule,
-                    ),
-                  ],
-                  if (shop.phone.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    _InfoRow(
-                      icon: Icons.phone_outlined,
-                      label: 'Phone',
-                      value: shop.phone,
-                      onTap: () => _callPhone(context, shop.phone),
-                      isLink: true,
-                    ),
-                  ],
+                  // ── Info rows — staggered ───────────────────────────────
+                  ..._buildInfoRows(context, shop, distanceKm),
 
                   const SizedBox(height: 24),
 
                   // ── Action buttons ──────────────────────────────────────
                   Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _onDirections(context),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2E7D32),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 13),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                        children: [
+                          Expanded(
+                            child: _ActionButton(
+                              label: 'Directions',
+                              icon: Icons.directions,
+                              backgroundColor: const Color(0xFF2E7D32),
+                              foregroundColor: Colors.white,
+                              onTap: () => _onDirections(context),
                             ),
-                            elevation: 0,
                           ),
-                          icon: const Icon(Icons.directions, size: 18),
-                          label: const Text(
-                            'Directions',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                        ),
+                          if (shop.phone.isNotEmpty) ...[
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _ActionButton(
+                                label: 'Call',
+                                icon: Icons.phone,
+                                backgroundColor: Colors.transparent,
+                                foregroundColor: const Color(0xFFB87333),
+                                borderColor: const Color(0xFFB87333),
+                                onTap: () => _callPhone(context, shop.phone),
+                              ),
+                            ),
+                          ],
+                        ],
+                      )
+                      .animate()
+                      .fadeIn(
+                        delay: const Duration(milliseconds: 200),
+                        duration: AppAnimations.standardSlow,
+                      )
+                      .slideY(
+                        begin: 0.15,
+                        end: 0,
+                        delay: const Duration(milliseconds: 200),
+                        duration: AppAnimations.emphasis,
+                        curve: AppAnimations.easeOutCubic,
                       ),
-                      if (shop.phone.isNotEmpty) ...[
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: () => _callPhone(context, shop.phone),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFFB87333),
-                              side: const BorderSide(
-                                color: Color(0xFFB87333),
-                                width: 1.5,
-                              ),
-                              padding: const EdgeInsets.symmetric(vertical: 13),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                            icon: const Icon(Icons.phone, size: 18),
-                            label: const Text(
-                              'Call',
-                              style: TextStyle(fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
 
                   const SizedBox(height: 28),
 
                   // ── Accepted materials ──────────────────────────────────
                   if (shop.acceptedMaterials.isNotEmpty) ...[
-                    _SectionHeader(title: 'Accepted Materials'),
+                    const _SectionHeader(
+                      title: 'Accepted Materials',
+                    ).animate().fadeIn(
+                      delay: const Duration(milliseconds: 280),
+                      duration: AppAnimations.standardSlow,
+                    ),
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: shop.acceptedMaterials
-                          .map((m) => _MaterialChip(label: m))
+                          .asMap()
+                          .entries
+                          .map(
+                            (e) => _MaterialChip(label: e.value)
+                                .animate()
+                                .fadeIn(
+                                  delay: Duration(
+                                    milliseconds: 320 + e.key * 30,
+                                  ),
+                                  duration: AppAnimations.standard,
+                                )
+                                .scale(
+                                  begin: const Offset(0.8, 0.8),
+                                  end: const Offset(1.0, 1.0),
+                                  delay: Duration(
+                                    milliseconds: 320 + e.key * 30,
+                                  ),
+                                  duration: AppAnimations.standardFade,
+                                  curve: AppAnimations.easeOutBack,
+                                ),
+                          )
                           .toList(),
                     ),
                     const SizedBox(height: 28),
@@ -256,7 +230,10 @@ class ShopDetailScreen extends StatelessWidget {
 
                   // ── Price list ──────────────────────────────────────────
                   if (shop.prices.isNotEmpty) ...[
-                    _SectionHeader(title: 'Price List'),
+                    const _SectionHeader(title: 'Price List').animate().fadeIn(
+                      delay: const Duration(milliseconds: 380),
+                      duration: AppAnimations.standardSlow,
+                    ),
                     const SizedBox(height: 4),
                     Text(
                       'Prices may vary.',
@@ -265,21 +242,39 @@ class ShopDetailScreen extends StatelessWidget {
                         color: Colors.grey.shade500,
                         fontStyle: FontStyle.italic,
                       ),
+                    ).animate().fadeIn(
+                      delay: const Duration(milliseconds: 400),
+                      duration: AppAnimations.standardFade,
                     ),
                     const SizedBox(height: 12),
                     if (magneticItems.isNotEmpty) ...[
-                      _PriceCategoryHeader(title: 'Magnetic Metals'),
-                      ...magneticItems.map((p) => _PriceRow(price: p)),
+                      const _PriceCategoryHeader(
+                        title: 'Magnetic Metals',
+                      ).animate().fadeIn(
+                        delay: const Duration(milliseconds: 420),
+                        duration: AppAnimations.standardFade,
+                      ),
+                      ..._staggeredPriceRows(magneticItems, startDelay: 440),
                       const SizedBox(height: 12),
                     ],
                     if (nonMagneticItems.isNotEmpty) ...[
-                      _PriceCategoryHeader(title: 'Non-Magnetic Metals'),
-                      ...nonMagneticItems.map((p) => _PriceRow(price: p)),
+                      const _PriceCategoryHeader(
+                        title: 'Non-Magnetic Metals',
+                      ).animate().fadeIn(
+                        delay: const Duration(milliseconds: 500),
+                        duration: AppAnimations.standardFade,
+                      ),
+                      ..._staggeredPriceRows(nonMagneticItems, startDelay: 520),
                       const SizedBox(height: 12),
                     ],
                     if (otherItems.isNotEmpty) ...[
-                      _PriceCategoryHeader(title: 'Other Materials'),
-                      ...otherItems.map((p) => _PriceRow(price: p)),
+                      const _PriceCategoryHeader(
+                        title: 'Other Materials',
+                      ).animate().fadeIn(
+                        delay: const Duration(milliseconds: 560),
+                        duration: AppAnimations.standardFade,
+                      ),
+                      ..._staggeredPriceRows(otherItems, startDelay: 580),
                     ],
                     const SizedBox(height: 32),
                   ],
@@ -290,6 +285,105 @@ class ShopDetailScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Builds info rows with a staggered delay starting at 80 ms.
+  List<Widget> _buildInfoRows(
+    BuildContext context,
+    JunkshopModel shop,
+    double? distanceKm,
+  ) {
+    final rows = <(IconData, String, String, VoidCallback?, bool)>[];
+
+    rows.add((
+      Icons.location_on_outlined,
+      'Address',
+      shop.address.isNotEmpty ? shop.address : 'N/A',
+      null,
+      false,
+    ));
+    if (shop.municipality.isNotEmpty) {
+      rows.add((
+        Icons.map_outlined,
+        'Municipality',
+        shop.municipality,
+        null,
+        false,
+      ));
+    }
+    if (distanceKm != null) {
+      rows.add((
+        Icons.near_me_outlined,
+        'Distance',
+        distanceKm < 1
+            ? '${(distanceKm * 1000).toStringAsFixed(0)} m away'
+            : '${distanceKm.toStringAsFixed(1)} km away',
+        null,
+        false,
+      ));
+    }
+    if (shop.schedule.isNotEmpty) {
+      rows.add((
+        Icons.access_time_outlined,
+        'Hours',
+        shop.schedule,
+        null,
+        false,
+      ));
+    }
+    if (shop.phone.isNotEmpty) {
+      rows.add((
+        Icons.phone_outlined,
+        'Phone',
+        shop.phone,
+        () => _callPhone(context, shop.phone),
+        true,
+      ));
+    }
+
+    return rows.asMap().entries.expand((e) {
+      final delay = Duration(milliseconds: 80 + e.key * 60);
+      final (icon, label, value, onTap, isLink) = e.value;
+      return [
+        _InfoRow(
+              icon: icon,
+              label: label,
+              value: value,
+              onTap: onTap,
+              isLink: isLink,
+            )
+            .animate()
+            .fadeIn(delay: delay, duration: AppAnimations.standardSlow)
+            .slideX(
+              begin: -0.1,
+              end: 0,
+              delay: delay,
+              duration: AppAnimations.standardSlow,
+              curve: AppAnimations.easeOutCubic,
+            ),
+        const SizedBox(height: 10),
+      ];
+    }).toList();
+  }
+
+  /// Builds price rows with a staggered delay.
+  List<Widget> _staggeredPriceRows(
+    List<MaterialPrice> items, {
+    required int startDelay,
+  }) {
+    return items.asMap().entries.map((e) {
+      final delay = Duration(milliseconds: startDelay + e.key * 25);
+      return _PriceRow(price: e.value)
+          .animate()
+          .fadeIn(delay: delay, duration: AppAnimations.standard)
+          .slideX(
+            begin: 0.08,
+            end: 0,
+            delay: delay,
+            duration: AppAnimations.standardMid,
+            curve: AppAnimations.easeOutCubic,
+          );
+    }).toList();
   }
 
   bool _isFerrousMetal(String material) {
@@ -327,9 +421,114 @@ class ShopDetailScreen extends StatelessWidget {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Sub-widgets
-// ---------------------------------------------------------------------------
+// ── Sub-widgets ───────────────────────────────────────────────────────────────
+
+class _StatusBadge extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _StatusBadge({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: AppAnimations.standardFade,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionButton extends StatefulWidget {
+  final String label;
+  final IconData icon;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final Color? borderColor;
+  final VoidCallback onTap;
+
+  const _ActionButton({
+    required this.label,
+    required this.icon,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    this.borderColor,
+    required this.onTap,
+  });
+
+  @override
+  State<_ActionButton> createState() => _ActionButtonState();
+}
+
+class _ActionButtonState extends State<_ActionButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) {
+        setState(() => _pressed = false);
+        widget.onTap();
+      },
+      onTapCancel: () => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.95 : 1.0,
+        duration: AppAnimations.micro,
+        child: AnimatedContainer(
+          duration: AppAnimations.microMedium,
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          decoration: BoxDecoration(
+            color: _pressed
+                ? widget.backgroundColor.withValues(alpha: 0.85)
+                : widget.backgroundColor,
+            borderRadius: BorderRadius.circular(10),
+            border: widget.borderColor != null
+                ? Border.all(color: widget.borderColor!, width: 1.5)
+                : null,
+            boxShadow: widget.backgroundColor != Colors.transparent
+                ? [
+                    BoxShadow(
+                      color: widget.backgroundColor.withValues(
+                        alpha: _pressed ? 0.15 : 0.3,
+                      ),
+                      blurRadius: _pressed ? 4 : 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(widget.icon, size: 18, color: widget.foregroundColor),
+              const SizedBox(width: 6),
+              Text(
+                widget.label,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: widget.foregroundColor,
+                  fontSize: 14,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _InfoRow extends StatelessWidget {
   final IconData icon;

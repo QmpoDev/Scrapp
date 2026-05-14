@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:lottie/lottie.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../utils/app_animations.dart';
 
 const String _kDontShowKey = 'scrapp_welcome_shown';
 
@@ -23,7 +27,7 @@ class _WelcomeDialog extends StatefulWidget {
 
 class _WelcomeDialogState extends State<_WelcomeDialog> {
   bool _dontShowAgain = false;
-  bool _dismissing = false; // guard against double-tap
+  bool _dismissing = false;
 
   Future<void> _dismiss() async {
     if (_dismissing) return;
@@ -39,18 +43,16 @@ class _WelcomeDialogState extends State<_WelcomeDialog> {
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.sizeOf(context).height;
     final screenWidth = MediaQuery.sizeOf(context).width;
-    // Responsive logo: ~80px on 360px-wide phone, clamped for very small/large screens.
-    final logoSize = (screenWidth * 0.22).clamp(56.0, 96.0);
+    final logoSize = (screenWidth * 0.28).clamp(64.0, 110.0);
 
     return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       backgroundColor: Colors.white,
       insetPadding: EdgeInsets.symmetric(
         horizontal: (screenWidth * 0.06).clamp(16.0, 32.0),
         vertical: 24,
       ),
       child: ConstrainedBox(
-        // Cap height so the dialog never overflows on short screens.
         constraints: BoxConstraints(maxHeight: screenHeight * 0.85),
         child: SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
@@ -62,26 +64,61 @@ class _WelcomeDialogState extends State<_WelcomeDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Image.asset(
-                'assets/images/logo/scrapp-s-logo.png',
-                width: logoSize,
-                height: logoSize,
-                fit: BoxFit.contain,
-                filterQuality: FilterQuality.high,
-              ),
+              // ── Lottie hero animation ─────────────────────────────────────
+              // Lottie replaces the static logo for a "living" first impression.
+              // Falls back gracefully to the PNG logo if the JSON fails to load.
+              SizedBox(
+                    width: logoSize,
+                    height: logoSize,
+                    child: Lottie.asset(
+                      'assets/lottie/welcome_recycle.json',
+                      width: logoSize,
+                      height: logoSize,
+                      fit: BoxFit.contain,
+                      repeat: true,
+                      errorBuilder: (_, __, ___) => Image.asset(
+                        'assets/images/logo/scrapp-s-logo.png',
+                        width: logoSize,
+                        height: logoSize,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                      ),
+                    ),
+                  )
+                  .animate()
+                  .scale(
+                    begin: const Offset(0.6, 0.6),
+                    end: const Offset(1.0, 1.0),
+                    duration: AppAnimations.emphasisFull,
+                    curve: AppAnimations.elasticOut,
+                  )
+                  .fadeIn(duration: AppAnimations.standardSlow),
 
               const SizedBox(height: 20),
 
+              // ── Title ─────────────────────────────────────────────────────
               const Text(
-                'Welcome to Scrapp!',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF1A1A1B),
-                  letterSpacing: 0.3,
-                ),
-                textAlign: TextAlign.center,
-              ),
+                    'Welcome to Scrapp!',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1A1A1B),
+                      letterSpacing: 0.3,
+                    ),
+                    textAlign: TextAlign.center,
+                  )
+                  .animate()
+                  .fadeIn(
+                    delay: const Duration(milliseconds: 150),
+                    duration: AppAnimations.emphasis,
+                  )
+                  .slideY(
+                    begin: 0.2,
+                    end: 0,
+                    delay: const Duration(milliseconds: 150),
+                    duration: AppAnimations.emphasis,
+                    curve: AppAnimations.easeOutCubic,
+                  ),
 
               const SizedBox(height: 10),
 
@@ -93,54 +130,59 @@ class _WelcomeDialogState extends State<_WelcomeDialog> {
                   height: 1.5,
                 ),
                 textAlign: TextAlign.center,
+              ).animate().fadeIn(
+                delay: const Duration(milliseconds: 220),
+                duration: AppAnimations.standardSlow,
               ),
 
               const SizedBox(height: 20),
 
-              _FeatureRow(
-                icon: Icons.map_outlined,
-                text: 'Browse junkshops on an interactive map',
-              ),
-              const SizedBox(height: 10),
-              _FeatureRow(
-                icon: Icons.search,
-                text: 'Search by name or filter by municipality',
-              ),
-              const SizedBox(height: 10),
-              _FeatureRow(
-                icon: Icons.directions_outlined,
-                text: 'Get directions straight to any shop',
-              ),
-              const SizedBox(height: 10),
-              _FeatureRow(
-                icon: Icons.my_location,
-                text: 'See your location on the map',
-              ),
+              // ── Feature rows — staggered entrance ────────────────────────
+              // Each row slides in from the left with an increasing delay,
+              // creating a choreographed "reveal" sequence (Phase 1 stagger).
+              ..._features.asMap().entries.map((e) {
+                final delay = Duration(milliseconds: 300 + e.key * 80);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _FeatureRow(icon: e.value.$1, text: e.value.$2)
+                      .animate()
+                      .fadeIn(
+                        delay: delay,
+                        duration: AppAnimations.standardSlow,
+                      )
+                      .slideX(
+                        begin: -0.25,
+                        end: 0,
+                        delay: delay,
+                        duration: AppAnimations.emphasis,
+                        curve: AppAnimations.easeOutCubic,
+                      ),
+                );
+              }),
 
               const SizedBox(height: 24),
 
+              // ── CTA button ────────────────────────────────────────────────
               SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _dismiss,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2E7D32),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
+                    width: double.infinity,
+                    child: _AnimatedCTAButton(onTap: _dismiss),
+                  )
+                  .animate()
+                  .fadeIn(
+                    delay: const Duration(milliseconds: 620),
+                    duration: AppAnimations.emphasis,
+                  )
+                  .slideY(
+                    begin: 0.3,
+                    end: 0,
+                    delay: const Duration(milliseconds: 620),
+                    duration: AppAnimations.emphasisSlow,
+                    curve: AppAnimations.easeOutCubic,
                   ),
-                  child: const Text(
-                    'Get Started',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ),
 
               const SizedBox(height: 12),
 
+              // ── Don't show again ──────────────────────────────────────────
               GestureDetector(
                 onTap: () => setState(() => _dontShowAgain = !_dontShowAgain),
                 child: Row(
@@ -154,7 +196,6 @@ class _WelcomeDialogState extends State<_WelcomeDialog> {
                         onChanged: (v) =>
                             setState(() => _dontShowAgain = v ?? false),
                         activeColor: const Color(0xFF2E7D32),
-                        // padded keeps the tap target at Flutter's default 48px.
                         materialTapTargetSize: MaterialTapTargetSize.padded,
                         visualDensity: VisualDensity.compact,
                         shape: RoundedRectangleBorder(
@@ -169,6 +210,9 @@ class _WelcomeDialogState extends State<_WelcomeDialog> {
                     ),
                   ],
                 ),
+              ).animate().fadeIn(
+                delay: const Duration(milliseconds: 700),
+                duration: AppAnimations.standardSlow,
               ),
             ],
           ),
@@ -177,6 +221,83 @@ class _WelcomeDialogState extends State<_WelcomeDialog> {
     );
   }
 }
+
+// Feature data — (icon, text) tuples.
+const _features = [
+  (Icons.map_outlined, 'Browse junkshops on an interactive map'),
+  (Icons.search, 'Search by name or filter by municipality'),
+  (Icons.directions_outlined, 'Get directions straight to any shop'),
+  (Icons.my_location, 'See your location on the map'),
+];
+
+// ── Animated CTA Button ───────────────────────────────────────────────────────
+
+/// Press-scale + gradient CTA button. Uses [AnimatedScale] (implicit widget)
+/// for the press feedback — no AnimationController needed.
+class _AnimatedCTAButton extends StatefulWidget {
+  final VoidCallback onTap;
+  const _AnimatedCTAButton({required this.onTap});
+
+  @override
+  State<_AnimatedCTAButton> createState() => _AnimatedCTAButtonState();
+}
+
+class _AnimatedCTAButtonState extends State<_AnimatedCTAButton> {
+  bool _pressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _pressed = true),
+      onTapUp: (_) {
+        setState(() => _pressed = false);
+        widget.onTap();
+      },
+      onTapCancel: () => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.96 : 1.0,
+        duration: AppAnimations.micro,
+        curve: Curves.easeOut,
+        child: AnimatedContainer(
+          duration: AppAnimations.microMedium,
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: _pressed
+                  ? [const Color(0xFF1B5E20), const Color(0xFF2E7D32)]
+                  : [const Color(0xFF43A047), const Color(0xFF2E7D32)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(
+                  0xFF2E7D32,
+                ).withValues(alpha: _pressed ? 0.2 : 0.4),
+                blurRadius: _pressed ? 4 : 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: const Center(
+            child: Text(
+              'Get Started',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Feature Row ───────────────────────────────────────────────────────────────
 
 class _FeatureRow extends StatelessWidget {
   final IconData icon;

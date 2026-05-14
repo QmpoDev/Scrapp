@@ -56,4 +56,10 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Required for map tile loading and navigation deep-links -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Camera permission for storefront photo capture -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Image storage permissions required by image_picker -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 </manifest>

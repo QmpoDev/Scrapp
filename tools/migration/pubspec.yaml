@@ -1,0 +1,9 @@
+name: migrate_shops
+description: Standalone Dart CLI script to seed junkshops.json into Supabase.
+
+environment:
+  sdk: ^3.0.0
+
+dependencies:
+  http: ^1.2.0
+  crypto: ^3.0.3

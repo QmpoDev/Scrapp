@@ -1,10 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:lottie/lottie.dart';
 import 'package:video_player/video_player.dart';
 
+import '../utils/app_animations.dart';
 import 'map_screen.dart';
 
 /// Splash screen that plays the DaVinci Resolve animation, then navigates
 /// to [MapScreen] when the video finishes (or after a 6-second fallback).
+///
+/// While the video is initialising, a Lottie animation is shown instead of
+/// a blank white screen — this eliminates the perceived "dead time" on cold
+/// start (Phase 1 — Lottie Integration).
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -15,7 +21,7 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen> {
   late final VideoPlayerController _controller;
   bool _initialized = false;
-  bool _navigated = false; // guard against multiple navigation calls
+  bool _navigated = false;
 
   @override
   void initState() {
@@ -36,7 +42,6 @@ class _SplashScreenState extends State<SplashScreen> {
         await _controller.play();
       }
     } catch (_) {
-      // If video fails to load, navigate immediately
       _navigateToMap();
     }
   }
@@ -56,9 +61,14 @@ class _SplashScreenState extends State<SplashScreen> {
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => const MapScreen(),
-        transitionsBuilder: (_, animation, __, child) =>
-            FadeTransition(opacity: animation, child: child),
-        transitionDuration: const Duration(milliseconds: 400),
+        transitionsBuilder: (_, animation, __, child) => FadeTransition(
+          opacity: CurvedAnimation(
+            parent: animation,
+            curve: AppAnimations.easeInOutCubic,
+          ),
+          child: child,
+        ),
+        transitionDuration: AppAnimations.emphasisMax,
       ),
     );
   }
@@ -85,8 +95,19 @@ class _SplashScreenState extends State<SplashScreen> {
                 ),
               ),
             )
-          // Show plain white screen while video initializes
-          : const SizedBox.shrink(),
+          // Lottie loading indicator while the video asset initialises.
+          // This replaces the blank white screen, giving the user immediate
+          // visual feedback that the app is alive (Phase 1 — Lottie).
+          : Center(
+              child: Lottie.asset(
+                'assets/lottie/welcome_recycle.json',
+                width: 120,
+                height: 120,
+                fit: BoxFit.contain,
+                repeat: true,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
     );
   }
 }

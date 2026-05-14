@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Scrapp uses the camera to photograph the shop storefront for verification purposes.</string>
 </dict>
 </plist>
